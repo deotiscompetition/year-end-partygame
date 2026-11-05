@@ -1,0 +1,39 @@
+{
+  "site": {
+    "name": "연말 대항전",
+    "tagline": "참가자 모두가 폰으로 동시에 겨루는 송년회 조 대항전",
+    "defaultTeams": ["1조", "2조", "3조", "4조", "5조"]
+  },
+  "intro": {
+    "year": "2026년",
+    "title": "디오티스 패밀리 송년회에",
+    "welcome": "오신 것을 환영합니다",
+    "thanks": [
+      "올 한 해도 정말 고생 많으셨습니다.",
+      "바쁜 일정 속에서도 서로를 먼저 챙겨 주신 디오티스 패밀리 한 분 한 분께 진심으로 감사드립니다.",
+      "힘든 순간에도 포기하지 않고 끝까지 함께해 주셨기에 오늘 이 자리가 있습니다.",
+      "묵묵히 자리를 지켜 주신 분들, 먼저 손 내밀어 주신 분들, 웃음으로 힘이 되어 주신 분들 모두 고맙습니다.",
+      "오늘만큼은 일은 잠시 내려놓고 마음껏 웃고 즐겨 주세요.",
+      "다가오는 새해에도 건강과 행복이 가득하시길 바랍니다."
+    ]
+  },
+  "games": [
+    { "id": "tap", "kind": "counter", "input": "tap", "category": "speed", "name": "광클 대결", "icon": "Pointer", "durationSec": 15, "summary": "버튼을 가장 많이 누른 사람이 이겨요.", "rules": ["화면의 큰 버튼을 계속 누르세요", "여러 손가락을 써도 좋아요", "끝날 때 가장 많이 누른 사람이 1등!"], "unit": "회" },
+    { "id": "shake", "kind": "counter", "input": "shake", "category": "speed", "name": "흔들기", "icon": "Vibrate", "durationSec": 15, "summary": "폰을 힘껏 흔드세요. 손에서 놓치지 않게 조심!", "rules": ["시작 전에 동작 센서를 허용하세요", "폰을 꼭 쥐고 위아래로 흔드세요", "가장 많이 흔든 사람이 1등!"], "unit": "회" },
+    { "id": "rub", "kind": "counter", "input": "rub", "category": "speed", "name": "문지르기", "icon": "MoveHorizontal", "durationSec": 15, "summary": "화면을 좌우로 빠르게 문질러요.", "rules": ["손가락을 화면에 대고 좌우로 움직이세요", "방향을 바꿀 때마다 1회입니다", "가장 많이 문지른 사람이 1등!"], "unit": "회" },
+    { "id": "mole", "kind": "quiz", "category": "speed", "name": "두더지 잡기", "icon": "Hammer", "durationSec": 20, "summary": "튀어나온 두더지만 빠르게 잡아요.", "rules": ["불이 켜진 칸을 누르세요", "다른 칸을 누르면 잠시 멈춰요", "가장 많이 잡은 사람이 1등!"], "unit": "마리", "penaltyMs": 500 },
+    { "id": "race", "kind": "race", "category": "speed", "name": "100m 달리기", "icon": "Footprints", "durationSec": 40, "summary": "왼발, 오른발을 번갈아 눌러 결승선으로!", "rules": ["왼발·오른발 버튼을 번갈아 누르세요", "같은 발을 연속으로 누르면 나가지 않아요", "먼저 결승선을 통과한 사람이 1등!"], "unit": "m" },
+    { "id": "keys", "kind": "quiz", "category": "speed", "name": "건반 따라치기", "icon": "Piano", "durationSec": 45, "goal": 40, "summary": "내려오는 건반을 순서대로 눌러요.", "rules": ["맨 아래 빛나는 건반을 누르세요", "틀리면 잠시 멈춰요", "40개를 먼저 끝낸 사람이 1등!"], "unit": "개", "penaltyMs": 500 },
+    { "id": "gauge", "kind": "gauge", "category": "speed", "name": "온도 맞추기", "icon": "Thermometer", "durationSec": 25, "summary": "코코아 온도를 움직이는 구간 안에 유지해요.", "rules": ["누르면 온도가 오르고 떼면 내려가요", "표시된 구간 안에 머무르세요", "구간 안에 가장 오래 머문 사람이 1등!"], "unit": "초" },
+    { "id": "tilt", "kind": "gauge", "input": "tilt", "category": "speed", "name": "수평 잡기", "icon": "Scale", "durationSec": 25, "summary": "폰을 기울여 공을 움직이는 구간 안에 두세요.", "rules": ["시작 전에 동작 센서를 허용하세요", "폰을 눕혀 들고 좌우로 살짝 기울여 공을 움직이세요", "공이 구간 안에 가장 오래 머문 사람이 1등!"], "unit": "초" },
+    { "id": "reflex", "kind": "reflex", "category": "speed", "name": "순간 포착", "icon": "Zap", "durationSec": 15, "summary": "화면이 바뀌는 순간 누르는 단판 승부.", "rules": ["빨간 화면에서 기다리세요", "초록으로 바뀌면 바로 누르세요", "미리 누르면 실격, 가장 빠른 사람이 1등!"], "unit": "ms" },
+    { "id": "oddEven", "kind": "quiz", "category": "brain", "name": "홀짝 계산", "icon": "Calculator", "durationSec": 30, "summary": "계산 결과가 홀수인지 짝수인지 맞혀요.", "rules": ["식을 보고 홀·짝을 고르세요", "틀리면 1초 멈춰요", "가장 많이 맞힌 사람이 1등!"], "unit": "개", "penaltyMs": 1000 },
+    { "id": "leftRight", "kind": "quiz", "category": "brain", "name": "좌우 규칙", "icon": "ArrowLeftRight", "durationSec": 30, "summary": "지시에 맞게 왼쪽, 오른쪽을 골라요.", "rules": ["'같은 쪽'이면 화살표 방향을 고르세요", "'반대 쪽'이면 반대 방향을 고르세요", "가장 많이 맞힌 사람이 1등!"], "unit": "개", "penaltyMs": 1000 },
+    { "id": "stroop", "kind": "quiz", "category": "brain", "name": "글자색 고르기", "icon": "Palette", "durationSec": 30, "summary": "글자 내용에 속지 말고 글자의 색을 골라요.", "rules": ["글자가 무슨 색으로 칠해졌는지 고르세요", "글자 내용은 함정이에요", "가장 많이 맞힌 사람이 1등!"], "unit": "개", "penaltyMs": 1000 },
+    { "id": "rps", "kind": "quiz", "category": "brain", "name": "지시 가위바위보", "icon": "Scissors", "durationSec": 30, "summary": "이겨라, 져라 지시대로 내요.", "rules": ["화면의 손과 지시를 함께 보세요", "지시대로 이기거나 지는 손을 내세요", "가장 많이 맞힌 사람이 1등!"], "unit": "개", "penaltyMs": 1000 },
+    { "id": "times", "kind": "quiz", "category": "brain", "name": "구구단 완주", "icon": "X", "durationSec": 60, "goal": 20, "summary": "구구단 20문제를 가장 빨리 풀어요.", "rules": ["보기에서 답을 고르세요", "틀리면 1초 멈춰요", "20문제를 먼저 끝낸 사람이 1등!"], "unit": "문제", "penaltyMs": 1000 },
+    { "id": "order", "kind": "quiz", "category": "brain", "name": "숫자 순서", "icon": "Grid3x3", "durationSec": 60, "goal": 16, "summary": "섞인 숫자를 1부터 16까지 순서대로 눌러요.", "rules": ["1부터 차례대로 누르세요", "틀리면 잠시 멈춰요", "16까지 먼저 끝낸 사람이 1등!"], "unit": "개", "penaltyMs": 500 },
+    { "id": "memory", "kind": "memory", "category": "brain", "name": "기억력 대결", "icon": "Brain", "durationSec": 90, "goal": 12, "summary": "반짝인 칸을 기억했다가 그대로 눌러요.", "rules": ["반짝이는 칸을 잘 보세요", "같은 칸을 모두 누르세요", "기회는 3번, 가장 높은 단계의 사람이 1등!"], "unit": "단계" },
+    { "id": "updown", "kind": "updown", "category": "brain", "name": "업다운", "icon": "LockKeyhole", "durationSec": 60, "summary": "1~100 사이 숫자를 업다운 힌트로 맞혀요.", "rules": ["숫자를 입력하고 확인을 누르세요", "업·다운 힌트를 따라가세요", "먼저 맞힌 사람이 1등!"], "unit": "회" }
+  ]
+}

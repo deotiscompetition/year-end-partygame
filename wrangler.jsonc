@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "year-end-partygame",
+  // 정적 화면(out/)은 그대로 제공하고 /api/*(방 생성·WebSocket)만 Worker가 처리합니다.
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-31",
+  "assets": {
+    "directory": "./out",
+    "binding": "ASSETS",
+    // 없는 주소는 out/404.html을 404 상태로 보여 줍니다.
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/api/*"]
+  },
+  // ROOM_IDLE_MINUTES: 이 시간 동안 관리자 조작·입장·게임 입력이 없으면 방을 닫고 데이터를 지웁니다.
+  // ROOM_PLAYED_IDLE_MINUTES: 게임 기록이 있는 방에 대신 적용합니다.
+  "vars": { "ENVIRONMENT": "production", "ROOM_IDLE_MINUTES": "10", "ROOM_PLAYED_IDLE_MINUTES": "60" },
+  // 방 하나가 Durable Object 하나입니다. 무료 플랜에서도 쓸 수 있는 SQLite 저장소를 사용합니다.
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "Room" },
+      { "name": "REGISTRY", "class_name": "Registry" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room"] },
+    { "tag": "v2", "new_sqlite_classes": ["Registry"] }
+  ],
+  // 대시보드는 30초마다 목록을 새로 받으므로 그보다 넉넉하게 둡니다.
+  "ratelimits": [
+    { "name": "ADMIN_LIMIT", "namespace_id": "2001", "simple": { "limit": 30, "period": 60 } }
+  ]
+}

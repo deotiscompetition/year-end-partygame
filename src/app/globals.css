@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+@theme {
+  --color-night: #0e1a2e;
+  --color-panel: #18284a;
+  --color-line: #2c4068;
+  --color-snow: #f4f7fb;
+  --color-mist: #9fb0cc;
+  --color-gold: #ffc94d;
+  --color-berry: #e8476a;
+}
+
+html, body {
+  background: var(--color-night);
+  color: var(--color-snow);
+  font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+}
+
+/* 폰 게임 중 확대·스크롤·선택이 입력을 방해하지 않게 합니다. */
+.game-surface {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.pop { animation: pop 0.35s ease-out both; }
+@keyframes pop {
+  from { transform: scale(0.7); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* 전광판: 흰 심지에 색 번짐을 겹쳐 네온관처럼 보이게 합니다. 색은 --glow로 바꿉니다. */
+.neon-board {
+  --glow: #ff2fd0;
+  background:
+    radial-gradient(circle at 25% 20%, rgb(255 47 208 / 0.16), transparent 45%),
+    radial-gradient(circle at 80% 80%, rgb(0 229 255 / 0.14), transparent 45%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='84' height='56'%3E%3Cpath d='M0 .5H84M0 28.5H84M.5 0V28M42.5 28V56' stroke='%23ffffff' stroke-opacity='.05'/%3E%3C/svg%3E"),
+    #07060f;
+}
+.neon-icon {
+  color: #fff;
+  filter: drop-shadow(0 0 2px var(--glow)) drop-shadow(0 0 10px var(--glow)) drop-shadow(0 0 22px var(--glow));
+}
+/* 간판 전구 테두리: 두 겹의 전구를 번갈아 켭니다. mask로 테두리 부분만 남깁니다. */
+.marquee {
+  position: relative;
+  border-radius: 1.25rem;
+  padding: 2.5rem;
+  background: rgb(12 8 28 / 0.82);
+  box-shadow: 0 0 34px rgb(255 201 77 / 0.25), inset 0 0 50px rgb(255 47 208 / 0.14);
+}
+.marquee::before,
+.marquee::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 24px;
+  border-radius: inherit;
+  pointer-events: none;
+  background-size: 52px 52px;
+  background-repeat: round;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  animation: bulb-chase 1s steps(1) infinite;
+}
+.marquee::before {
+  background-image:
+    radial-gradient(circle at 13px 13px, #fffbe0 0 4px, #ffc94d 5px 6px, rgb(255 180 40 / 0.45) 8px, transparent 12px),
+    radial-gradient(circle at 39px 39px, #fffbe0 0 4px, #ffc94d 5px 6px, rgb(255 180 40 / 0.45) 8px, transparent 12px);
+}
+.marquee::after {
+  background-image:
+    radial-gradient(circle at 39px 13px, #fffbe0 0 4px, #ffc94d 5px 6px, rgb(255 180 40 / 0.45) 8px, transparent 12px),
+    radial-gradient(circle at 13px 39px, #fffbe0 0 4px, #ffc94d 5px 6px, rgb(255 180 40 / 0.45) 8px, transparent 12px);
+  animation-delay: -0.5s;
+}
+@keyframes bulb-chase {
+  0% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+.neon-text {
+  color: #fff;
+  text-shadow: 0 0 3px #fff, 0 0 10px var(--glow), 0 0 24px var(--glow), 0 0 48px var(--glow);
+}
+.neon-frame {
+  border: 2px solid #fff;
+  border-radius: 1rem;
+  box-shadow: 0 0 6px var(--glow), 0 0 22px var(--glow), inset 0 0 6px var(--glow), inset 0 0 22px var(--glow);
+}
+.neon-flicker { animation: neon-flicker 5s linear infinite; }
+@keyframes neon-flicker {
+  0%, 91%, 94%, 97%, 100% { opacity: 1; }
+  92%, 96% { opacity: 0.72; }
+}
+
+/* 인트로의 흐르는 감사 인사. 두 벌 중 한 벌 길이(-50%)만큼 움직인 뒤 처음으로 돌아갑니다. */
+.ticker {
+  display: flex;
+  width: max-content;
+  white-space: nowrap;
+  animation: ticker linear infinite;
+}
+.ticker > span { padding-right: 12vmin; }
+@keyframes ticker {
+  to { transform: translateX(-50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pop, .neon-flicker, .marquee::before, .marquee::after, .ticker { animation: none; }
+  .ticker { width: auto; white-space: normal; font-size: 3vmin; }
+  .ticker-copy { display: none; }
+}

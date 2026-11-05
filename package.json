@@ -1,0 +1,38 @@
+{
+  "name": "year-end-partygame",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "next build",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit && tsc -p worker/tsconfig.json",
+    "simulate": "node scripts/simulate.mjs",
+    "preview:cloudflare": "pnpm run build && wrangler dev --local",
+    "check:deploy": "pnpm run build && wrangler deploy --dry-run",
+    "deploy:cloudflare": "wrangler deploy"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.37.0",
+    "next": "16.3.6",
+    "qrcode": "^1.5.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260929.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.6",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "wrangler": "^4.143.1"
+  },
+  "packageManager": "pnpm@10.15.1"
+}

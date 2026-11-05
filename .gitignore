@@ -1,0 +1,14 @@
+/node_modules
+/.next/
+/out/
+/build
+/.tmp/
+/.wrangler/
+.dev.vars*
+.env*
+*.tsbuildinfo
+next-env.d.ts
+*.pem
+.DS_Store
+pnpm-debug.log*
+/demo.mp4
