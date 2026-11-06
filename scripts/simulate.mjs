@@ -291,6 +291,15 @@ if (!options.keep) {
   await sleep(500);
   assert(adminClosed, "닫은 방의 연결이 끊기지 않음");
   assert(!(await listed()), "닫은 방이 대시보드에 남음");
+  // 닫힐 때 연결이 없던 폰도 재접속을 반복하지 않도록 닫혔다는 안내를 받아야 합니다.
+  const late = await new Promise((resolve, reject) => {
+    const socket = new WebSocket(wsUrl(code));
+    let message = null;
+    socket.onmessage = event => { message = JSON.parse(event.data); };
+    socket.onclose = event => resolve({ message, closeCode: event.code });
+    socket.onerror = () => reject(new Error("닫힌 방 접속이 거절됨"));
+  });
+  assert(late.message?.code === "CLOSED" && late.closeCode === 1000, "닫힌 방 접속에 종료 안내가 없음");
   console.log("통과: 방 닫기");
 }
 admin.close();

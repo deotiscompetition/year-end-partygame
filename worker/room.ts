@@ -107,12 +107,19 @@ export class Room extends DurableObject<Env> {
       this.report();
       return Response.json({ adminToken, screenKey });
     }
-    if (!this.room) return new Response("no room", { status: 404 });
     if (url.pathname === "/close") {
+      if (!this.room) return new Response("no room", { status: 404 });
       await this.closeRoom();
       return new Response("closed");
     }
     const { 0: client, 1: server } = new WebSocketPair();
+    if (!this.room) {
+      // 거절하면 폰이 원인을 몰라 재접속을 반복하므로, 닫혔다고 알려 주고 끊습니다.
+      server.accept();
+      this.fail(server, "CLOSED", "방이 닫혔습니다.");
+      server.close(1000, "closed");
+      return new Response(null, { status: 101, webSocket: client });
+    }
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ role: null } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
