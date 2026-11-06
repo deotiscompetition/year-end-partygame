@@ -50,7 +50,9 @@ export function PlayRoom() {
           savePlayer(code, null);
           setToken(null);
           setPersonal(null);
-        } else if (message.code === "KICKED" || message.code === "CLOSED") {
+        } else if (message.code === "CLOSED") {
+          savePlayer(code, null);
+        } else if (message.code === "KICKED") {
           savePlayer(code, null);
           setFatal(message.message);
         } else if (message.code === "BAD_TEAM") {
@@ -71,6 +73,7 @@ export function PlayRoom() {
 
   if (!code) return <Notice title="QR을 다시 찍어 주세요" />;
   if (fatal) return <Notice title={fatal} />;
+  if (ended === "closed") return <Notice title="게임이 종료되었습니다">참여해 주셔서 감사합니다.</Notice>;
   if (ended) return <ConnectionEnded ended={ended} onRetry={reconnect} />;
   if (activeToken && !personal) return <Notice title="다시 연결하는 중…" />;
 
