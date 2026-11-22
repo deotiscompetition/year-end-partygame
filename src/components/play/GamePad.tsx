@@ -1,10 +1,10 @@
 "use client";
 
 import clsx from "clsx";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
-  applyInput, gaugeBand, MEMORY_GRID, MEMORY_LIVES, memoryPattern, newRun, question, RACE_METERS, reflexDelay, REFLEX_NO_RESPONSE_MS,
-  type GameDef, type GameInput, type Run,
+  applyInput, correctPrefix, gaugeBand, MEMORY_GRID, MEMORY_LIVES, memoryPattern, newRun, question, RACE_METERS, reflexDelay, REFLEX_NO_RESPONSE_MS,
+  RHYTHM_GOOD_MS, RHYTHM_LANES, rhythmChart, typingSentences, type GameDef, type RhythmJudge, type GameInput, type Run,
 } from "@/game/engine";
 import { INPUT_FLUSH_MS, type ClientMessage } from "@/game/protocol";
 
@@ -16,6 +16,8 @@ type Props = {
   playerId: string;
   offset: number;
   timeLeft: number;
+  /** 서버가 1초마다 보내는 지금 내 등수 */
+  liveRank: { rank: number; ranked: number } | null;
   send: (message: ClientMessage) => boolean;
 };
 
@@ -23,7 +25,7 @@ type Pending = { at: number; input: GameInput };
 const MAX_BATCH = 40;
 
 /** 입력은 화면에 바로 반영하고, 서버에는 묶어서 보냅니다. 규칙 함수가 같아 양쪽 결과가 일치합니다. */
-export function GamePad({ def, seed, startedAt, initialRun, playerId, offset, timeLeft, send }: Props) {
+export function GamePad({ def, seed, startedAt, initialRun, playerId, offset, timeLeft, liveRank, send }: Props) {
   const [run, setRun] = useState<Run>(() => initialRun ?? newRun());
   const pending = useRef<Pending[]>([]);
   const runRef = useRef(run);
@@ -49,8 +51,9 @@ export function GamePad({ def, seed, startedAt, initialRun, playerId, offset, ti
     runRef.current = next;
     setRun(next);
     const last = pending.current.at(-1);
-    // 연타는 한 건으로 합쳐 메시지를 줄입니다.
+    // 연타와 타자 입력은 한 건으로 합쳐 메시지를 줄입니다.
     if (input.type === "count" && last?.input.type === "count" && last.input.n < 30) last.input = { type: "count", n: last.input.n + input.n };
+    else if (input.type === "typed" && last?.input.type === "typed" && last.input.index === input.index && !last.input.done) last.input = input;
     else pending.current.push({ at, input });
     // 완주 순간은 바로 보내 큰 화면이 늦지 않게 합니다.
     if (next.finishedAt !== null || next.out) flush();
@@ -63,6 +66,11 @@ export function GamePad({ def, seed, startedAt, initialRun, playerId, offset, ti
     <section className="game-surface flex h-full flex-col">
       <div className="flex items-center justify-between px-4 py-2">
         <span className="font-bold">{def.name}</span>
+        {liveRank && (
+          <span className="pop font-black text-gold" key={liveRank.rank}>
+            지금 {liveRank.rank}등<span className="text-sm font-normal text-mist"> / {liveRank.ranked}명</span>
+          </span>
+        )}
         <span className="rounded-full bg-gold px-3 text-lg font-black tabular-nums text-night">{timeLeft}</span>
       </div>
       <div className="relative min-h-0 flex-1">
@@ -96,6 +104,8 @@ function Controls(props: Controls) {
     case "memory": return <Memory {...props} />;
     case "updown": return <UpDown {...props} />;
     case "quiz": return <Quiz {...props} />;
+    case "typing": return <Typing {...props} />;
+    case "rhythm": return <Rhythm {...props} />;
   }
 }
 
@@ -281,6 +291,190 @@ function Tilt(props: Controls) {
       <span className="text-xl font-bold">{sensing ? "폰을 좌우로 기울이세요" : "센서가 안 되면 버튼을 누르고 있으세요"}</span>
       {!sensing && <div className="flex w-full gap-3">{hold("← 왼쪽", -1)}{hold("오른쪽 →", 1)}</div>}
     </div>
+  );
+}
+
+/** 노트가 아래에서 위쪽 판정 링(HIT_LINE %)까지 올라오는 시간 */
+const RHYTHM_RISE_MS = 1600;
+const HIT_LINE = 13;
+/**
+ * 발판(public/images/dance-pad.svg, 320×320) 다섯 칸과 노트 줄의 대응. 줄 순서는 왼쪽부터 좌하·좌상·가운데·우상·우하입니다.
+ * rotate는 왼쪽 위를 가리키는 화살표를 돌리는 각도이고, null은 가운데 네모입니다. col·row는 발판의 3×3 칸 위치입니다.
+ */
+const PAD_LANES = [
+  { name: "왼쪽 아래", color: "#2fd8ff", light: "#d6f7ff", rotate: -90, col: 0, row: 2 },
+  { name: "왼쪽 위", color: "#ff2fd0", light: "#ffd6f6", rotate: 0, col: 0, row: 0 },
+  { name: "가운데", color: "#ffc94d", light: "#fffbe0", rotate: null, col: 1, row: 1 },
+  { name: "오른쪽 위", color: "#ff2fd0", light: "#ffd6f6", rotate: 90, col: 2, row: 0 },
+  { name: "오른쪽 아래", color: "#2fd8ff", light: "#d6f7ff", rotate: 180, col: 2, row: 2 },
+] as const;
+/** 발판 그림에서 칸이 시작하는 위치와 크기를 %로 바꾼 값 */
+const PAD_CELL_START = [20, 114, 208].map(px => (px / 320) * 100);
+const PAD_CELL_SIZE = (92 / 320) * 100;
+const JUDGE_TEXT: Record<RhythmJudge | "miss", { text: string; color: string }> = {
+  perfect: { text: "정확!", color: "#5ff0ff" },
+  good: { text: "좋아!", color: "#ffe14d" },
+  wrong: { text: "-30", color: "#ff5d5d" },
+  miss: { text: "놓침", color: "#ff5d5d" },
+};
+/** 하늘 배경의 구름 위치(%)와 크기(px) */
+const CLOUDS = [
+  { left: 4, top: 22, width: 120 },
+  { left: 58, top: 40, width: 150 },
+  { left: 18, top: 66, width: 100 },
+  { left: 66, top: 80, width: 130 },
+];
+
+/** 노트와 위쪽 판정 표시. 화살표 모양은 dance-pad.svg와 같습니다. outline이면 테두리만 그립니다. */
+function PadSymbol({ lane, outline }: { lane: number; outline?: boolean }) {
+  const { color, light, rotate } = PAD_LANES[lane];
+  const paint = outline ? { fill: "rgba(0,0,0,0.25)", stroke: color, strokeWidth: 4 } : { fill: color, stroke: light, strokeWidth: 2.5 };
+  return (
+    <svg viewBox="-32 -32 64 64" className="size-full overflow-visible" style={{ filter: `drop-shadow(0 0 ${outline ? 4 : 6}px ${color})` }} aria-hidden>
+      {rotate === null
+        ? <rect x="-22" y="-22" width="44" height="44" rx="8" {...paint} />
+        : <path d="M-26 -26 H8 L-4 -14 L26 16 L16 26 L-14 -4 L-26 8 Z" strokeLinejoin="round" transform={`rotate(${rotate})`} {...paint} />}
+    </svg>
+  );
+}
+
+function Rhythm({ def, run, act, seed, startedAt, offset }: Controls) {
+  const chart = useMemo(() => rhythmChart(def, seed), [def, seed]);
+  const [elapsed, setElapsed] = useState(0);
+  const [feedback, setFeedback] = useState<{ judge: RhythmJudge; lane: number; key: number } | null>(null);
+  useEffect(() => {
+    let frame = 0;
+    const loop = () => {
+      setElapsed(Date.now() + offset - startedAt);
+      frame = requestAnimationFrame(loop);
+    };
+    frame = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frame);
+  }, [offset, startedAt]);
+  const last = useRef(run);
+  const taps = useRef(0);
+  const [combo, setCombo] = useState(0);
+  function tap(lane: number) {
+    // 판정은 규칙 함수 결과의 변화로 알아냅니다. 감점이면 wrong이 늘고, 정확하면 100점이 오릅니다.
+    const before = last.current;
+    const next = act({ type: "tap", lane });
+    last.current = next;
+    const judge: RhythmJudge = next.wrong > before.wrong ? "wrong" : next.value - before.value >= 100 ? "perfect" : "good";
+    // 콤보는 화면 연출입니다. 감점이거나 사이에 놓친 노트가 있으면 다시 셉니다.
+    setCombo(value => (judge === "wrong" ? 0 : next.index - before.index > 1 ? 1 : value + 1));
+    taps.current += 1;
+    setFeedback({ judge, lane, key: taps.current });
+  }
+  const lane = (index: number) => `${((index + 0.5) / RHYTHM_LANES) * 100}%`;
+  // 아직 안 친 노트 중 화면에 들어온 것만 그립니다. 판정 범위를 지나면 놓친 노트로 흐리게 보입니다.
+  const visible = chart.map((note, i) => ({ ...note, i })).filter(note => note.i >= run.index && note.at - elapsed < RHYTHM_RISE_MS && elapsed - note.at < 400);
+  const missing = chart.some((note, i) => i >= run.index && note.at < elapsed - RHYTHM_GOOD_MS);
+  const shown = missing ? { ...JUDGE_TEXT.miss, key: -run.index } : feedback && { ...JUDGE_TEXT[feedback.judge], key: feedback.key };
+  const comboShown = missing ? 0 : combo;
+  const progress = Math.min(1, Math.max(0, elapsed / (def.durationSec * 1000)));
+  return (
+    <div className="flex size-full touch-none select-none flex-col">
+      <div className="flex items-center gap-3 px-3 pb-1">
+        <div className="h-3 flex-1 overflow-hidden rounded-full border border-white/40 bg-black/40">
+          <div className="h-full rounded-full" style={{ width: `${progress * 100}%`, background: "linear-gradient(90deg, #4fd88a, #ffd400, #ff5d5d)" }} />
+        </div>
+        <span className="text-2xl font-black tabular-nums text-gold">{run.value}점</span>
+      </div>
+      <div className="relative min-h-0 flex-1 overflow-hidden" style={{ background: "linear-gradient(to bottom, #0b2a6b, #1f5aa8 55%, #3a86d6)" }}>
+        {CLOUDS.map(cloud => (
+          <span key={cloud.left} aria-hidden className="absolute h-10 rounded-full bg-white/15 blur-sm" style={{ left: `${cloud.left}%`, top: `${cloud.top}%`, width: cloud.width }} />
+        ))}
+        <span aria-hidden className="absolute right-[12%] top-[28%] size-24 rounded-full bg-white/10" />
+        {PAD_LANES.map((pad, index) => (
+          <span
+            key={feedback?.lane === index ? `${pad.name}-${feedback.key}` : pad.name}
+            className={clsx("absolute size-14 -translate-x-1/2 -translate-y-1/2", feedback?.lane === index && "pop")}
+            style={{ left: lane(index), top: `${HIT_LINE}%` }}
+          >
+            <PadSymbol lane={index} outline />
+          </span>
+        ))}
+        {visible.map(note => {
+          const missed = elapsed - note.at > RHYTHM_GOOD_MS;
+          return (
+            <span
+              key={note.i}
+              className="absolute size-12 -translate-x-1/2 -translate-y-1/2"
+              style={{ left: lane(note.lane), top: `${HIT_LINE + ((note.at - elapsed) / RHYTHM_RISE_MS) * (100 - HIT_LINE + 8)}%`, opacity: missed ? 0.25 : 1 }}
+            >
+              <PadSymbol lane={note.lane} />
+            </span>
+          );
+        })}
+        {shown && (
+          <div key={shown.key} className="pop pointer-events-none absolute inset-x-0 top-[38%] flex flex-col items-center">
+            <span className="text-5xl font-black italic" style={{ color: shown.color, textShadow: `0 0 12px ${shown.color}, 0 2px 0 #000` }}>{shown.text}</span>
+            {comboShown >= 2 && <span className="text-2xl font-black tabular-nums text-white [text-shadow:0_2px_0_#000]">콤보 {comboShown}</span>}
+          </div>
+        )}
+      </div>
+      {/* 발판 그림 위에 다섯 칸 크기의 버튼을 겹칩니다. 눌린 칸은 같은 색으로 잠깐 빛납니다. */}
+      <div className="shrink-0 p-2">
+        <div className="relative mx-auto aspect-square" style={{ height: "min(36dvh, calc(100vw - 16px))" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element -- 정적 배포라 이미지 최적화를 쓰지 않습니다. */}
+          <img src="/images/dance-pad.svg" alt="" className="size-full" draggable={false} />
+          {PAD_LANES.map((pad, index) => (
+            <button
+              key={pad.name}
+              aria-label={`발판 ${pad.name}`}
+              onPointerDown={() => tap(index)}
+              className="absolute overflow-hidden rounded-[11%]"
+              style={{ left: `${PAD_CELL_START[pad.col]}%`, top: `${PAD_CELL_START[pad.row]}%`, width: `${PAD_CELL_SIZE}%`, height: `${PAD_CELL_SIZE}%` }}
+            >
+              {feedback?.lane === index && <span key={feedback.key} className="pop absolute inset-0" style={{ background: `${pad.color}66`, boxShadow: `inset 0 0 18px ${pad.color}` }} />}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 맞게 치고 다음을 누르면 넘어갑니다. 한글 조합이 끝난 뒤 확인하도록 자동으로 넘기지 않습니다. */
+function Typing({ def, run, act, seed }: Controls) {
+  const target = typingSentences(def, seed, run.index + 1).at(-1) ?? "";
+  const [text, setText] = useState("");
+  const [wrong, setWrong] = useState(false);
+  const correct = correctPrefix(target, text.normalize("NFC"));
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const next = act({ type: "typed", index: run.index, text, done: true });
+    setWrong(next.index === run.index);
+    if (next.index !== run.index) setText("");
+  }
+  return (
+    <form onSubmit={submit} className="flex size-full flex-col gap-3 p-4">
+      <p className="text-center text-mist"><b className="text-2xl tabular-nums text-gold">{run.value}자</b> · {run.index + 1}번째 문장</p>
+      <p className="select-none rounded-xl bg-panel p-4 text-center text-2xl font-bold leading-relaxed">
+        <span className="text-[#4fd88a]">{target.slice(0, correct)}</span>{target.slice(correct)}
+      </p>
+      <input
+        autoFocus
+        aria-label="문장 입력"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        enterKeyHint="next"
+        maxLength={100}
+        value={text}
+        onPaste={event => event.preventDefault()}
+        onChange={event => {
+          setText(event.target.value);
+          setWrong(false);
+          act({ type: "typed", index: run.index, text: event.target.value, done: false });
+        }}
+        className={clsx("rounded-xl border-2 bg-night px-4 py-3 text-xl text-snow", wrong ? "border-berry" : "border-line")}
+      />
+      {wrong && <p role="alert" className="text-center text-sm text-berry">틀린 글자가 있어요. 초록색 뒤부터 고쳐 주세요.</p>}
+      {/* 누를 때 입력칸 포커스를 유지해 키보드가 내려가지 않게 합니다. */}
+      <button onPointerDown={event => event.preventDefault()} className="rounded-xl bg-gold py-3 text-lg font-bold text-night">다음</button>
+    </form>
   );
 }
 

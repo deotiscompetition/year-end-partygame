@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import catalog from "../src/content/games.json";
 import { applyInput, liveValue, newRun, rankPlayers, rankTeams, REFLEX_MAX_DELAY_MS, REFLEX_NO_RESPONSE_MS, valueLabel, type GameDef, type PlayerRank, type Run, type TeamRank } from "../src/game/engine";
 import {
-  clientMessage, COUNTDOWN_MS, MAX_ENTRY_ATTEMPTS, MAX_PLAYERS, rankByScore, TEAM_COLORS, withDuration,
+  clientMessage, COUNTDOWN_MS, displayName, MAX_ENTRY_ATTEMPTS, MAX_PLAYERS, rankByScore, TEAM_COLORS, withDuration,
   type ClientMessage, type ErrorCode, type GameMode, type Leader, type ScreenTab, type Personal, type Phase, type PlayedGame, type RoundRecord, type ServerMessage, type StageView, type TeamInfo, type TopPlayer,
 } from "../src/game/protocol";
 import type { Registry } from "./registry";
@@ -71,6 +71,9 @@ const randomToken = () => [...crypto.getRandomValues(new Uint8Array(16))].map(b 
 export class Room extends DurableObject<Env> {
   private room: RoomState | null = null;
   private stageTimer: ReturnType<typeof setTimeout> | null = null;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 게임 중 실시간 개인 순위. 화면 메시지를 만들 때 함께 계산해 폰에 등수를 보냅니다. */
+  private liveRanking: PlayerRank[] = [];
   private stageTicks = 0;
   private lastSave = 0;
   // 소켓별 속도 제한과 입장 시도 횟수는 잠시 메모리에만 둡니다(깨어나면 초기화돼도 괜찮습니다).
@@ -209,6 +212,8 @@ export class Room extends DurableObject<Env> {
     }
     if (this.stageTimer) clearTimeout(this.stageTimer);
     this.stageTimer = null;
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
     this.room = null;
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
@@ -485,7 +490,7 @@ export class Room extends DurableObject<Env> {
     const { players } = this.room!;
     const ranks = rankByScore(players);
     return [...players].sort((a, b) => ranks.get(a.id)! - ranks.get(b.id)!).slice(0, TOP_COUNT)
-      .map(player => ({ rank: ranks.get(player.id)!, nickname: player.nickname, teamId: player.teamId, score: player.score }));
+      .map(player => ({ rank: ranks.get(player.id)!, nickname: player.nickname, display: displayName(player), teamId: player.teamId, score: player.score }));
   }
 
   private topPlayers(def: GameDef, ids: string[]): TopPlayer[] {
@@ -493,7 +498,7 @@ export class Room extends DurableObject<Env> {
     const byId = new Map(room.players.map(player => [player.id, player]));
     return ids.flatMap(id => {
       const player = byId.get(id);
-      return player ? [{ nickname: player.nickname, teamId: player.teamId, label: valueLabel(def, room.runs[id]) }] : [];
+      return player ? [{ nickname: player.nickname, display: displayName(player), teamId: player.teamId, label: valueLabel(def, room.runs[id]), value: liveValue(def, room.runs[id]) }] : [];
     });
   }
 
@@ -530,9 +535,10 @@ export class Room extends DurableObject<Env> {
       }
     }
     let top = room.top;
+    this.liveRanking = [];
     if (room.phase === "playing" && def) {
-      const ranked = rankPlayers(def, Object.fromEntries(live.map(entry => [entry.id, entry.run])));
-      top = this.topPlayers(def, ranked.slice(0, TOP_COUNT).map(entry => entry.playerId));
+      this.liveRanking = rankPlayers(def, Object.fromEntries(live.map(entry => [entry.id, entry.run])));
+      top = this.topPlayers(def, this.liveRanking.slice(0, TOP_COUNT).map(entry => entry.playerId));
     }
     const stage: StageView = {
       code: room.code, title: room.title, mode: room.mode, screenTab: room.screenTab, leaders: room.leaders, gameIds: room.gameIds, durations: room.durations, phase: room.phase, gameId: room.gameId, seed: room.seed, phaseEndsAt: room.phaseEndsAt, startedAt: room.startedAt,
@@ -543,7 +549,7 @@ export class Room extends DurableObject<Env> {
       playerCount: room.players.length,
       teamRanking: room.teamRanking,
       top,
-      recent: room.players.slice(-12).map(player => player.nickname),
+      recent: room.players.slice(-12).map(displayName),
       played: room.played,
     };
     return { t: "stage", now: Date.now(), stage };
@@ -589,12 +595,16 @@ export class Room extends DurableObject<Env> {
     const admin = toPlayers ? JSON.stringify(this.adminMessage()) : null;
     const players = personal ? new Map(this.room.players.map(player => [player.id, player])) : null;
     const ranks = personal ? rankByScore(this.room.players) : new Map<string, number>();
+    const { startedAt } = this.room;
+    const liveRanks = toPlayers && this.room.phase === "playing" && startedAt !== null ? new Map(this.liveRanking.map(entry => [entry.playerId, entry.rank])) : null;
     for (const socket of this.ctx.getWebSockets()) {
       const { role, playerId } = socket.deserializeAttachment() as Attachment;
       if (role === "admin" && admin) this.send(socket, admin);
       if (role === "admin" || role === "screen" || (role === "player" && toPlayers)) this.send(socket, stage);
       const player = playerId ? players?.get(playerId) : undefined;
       if (player) this.send(socket, { t: "personal", personal: this.personal(player, ranks) });
+      const liveRank = playerId ? liveRanks?.get(playerId) : undefined;
+      if (liveRank !== undefined && startedAt !== null) this.send(socket, { t: "live", startedAt, rank: liveRank, ranked: this.liveRanking.length });
     }
   }
 
@@ -612,8 +622,22 @@ export class Room extends DurableObject<Env> {
       }
       this.stageTicks = (this.stageTicks + 1) % PLAYER_STAGE_EVERY;
       this.broadcast(this.stageTicks === 0);
-      if (Date.now() - this.lastSave >= SAVE_MS) void this.save();
+      this.queueSave();
     }, STAGE_MS);
+  }
+
+  /** 입력이 멈춘 뒤에도 마지막 상태를 저장합니다. 저장하지 않고 잠들면 그 입력이 사라집니다. */
+  private queueSave(): void {
+    const wait = SAVE_MS - (Date.now() - this.lastSave);
+    if (wait <= 0) {
+      void this.save();
+      return;
+    }
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      void this.save();
+    }, wait);
   }
 
   private async save(): Promise<void> {

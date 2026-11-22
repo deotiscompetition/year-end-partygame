@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="댄스 발판">
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <linearGradient id="frame" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2c4068"/>
+      <stop offset="1" stop-color="#0e1a2e"/>
+    </linearGradient>
+    <!-- 대각선 화살표 (왼쪽 위를 가리킴). 다른 방향은 회전해서 씀 -->
+    <path id="arrow" d="M-26 -26 H8 L-4 -14 L26 16 L16 26 L-14 -4 L-26 8 Z" stroke-linejoin="round"/>
+  </defs>
+
+  <!-- 바깥 틀 -->
+  <rect x="6" y="6" width="308" height="308" rx="22" fill="url(#frame)" stroke="#07060f" stroke-width="4"/>
+  <rect x="14" y="14" width="292" height="292" rx="16" fill="#07060f"/>
+
+  <!-- 빈 칸(상·하·좌·우) -->
+  <g fill="#18284a" stroke="#2c4068" stroke-width="2">
+    <rect x="114" y="20" width="92" height="92" rx="10"/>
+    <rect x="114" y="208" width="92" height="92" rx="10"/>
+    <rect x="20" y="114" width="92" height="92" rx="10"/>
+    <rect x="208" y="114" width="92" height="92" rx="10"/>
+  </g>
+
+  <!-- 밟는 칸 5개: id로 눌림 효과를 줄 수 있음 -->
+  <g id="panel-ul">
+    <rect x="20" y="20" width="92" height="92" rx="10" fill="#16213d" stroke="#ff2fd0" stroke-width="3"/>
+    <use href="#arrow" transform="translate(66 66)" fill="#ff2fd0" stroke="#ffd6f6" stroke-width="2.5" filter="url(#glow)"/>
+  </g>
+  <g id="panel-ur">
+    <rect x="208" y="20" width="92" height="92" rx="10" fill="#16213d" stroke="#ff2fd0" stroke-width="3"/>
+    <use href="#arrow" transform="translate(254 66) rotate(90)" fill="#ff2fd0" stroke="#ffd6f6" stroke-width="2.5" filter="url(#glow)"/>
+  </g>
+  <g id="panel-dl">
+    <rect x="20" y="208" width="92" height="92" rx="10" fill="#16213d" stroke="#2fd8ff" stroke-width="3"/>
+    <use href="#arrow" transform="translate(66 254) rotate(-90)" fill="#2fd8ff" stroke="#d6f7ff" stroke-width="2.5" filter="url(#glow)"/>
+  </g>
+  <g id="panel-dr">
+    <rect x="208" y="208" width="92" height="92" rx="10" fill="#16213d" stroke="#2fd8ff" stroke-width="3"/>
+    <use href="#arrow" transform="translate(254 254) rotate(180)" fill="#2fd8ff" stroke="#d6f7ff" stroke-width="2.5" filter="url(#glow)"/>
+  </g>
+  <g id="panel-c">
+    <rect x="114" y="114" width="92" height="92" rx="10" fill="#16213d" stroke="#ffc94d" stroke-width="3"/>
+    <rect x="136" y="136" width="48" height="48" rx="8" fill="#ffc94d" stroke="#fffbe0" stroke-width="2.5" filter="url(#glow)"/>
+  </g>
+
+  <!-- 나사 -->
+  <g fill="#9fb0cc">
+    <circle cx="160" cy="11" r="2"/><circle cx="160" cy="309" r="2"/>
+    <circle cx="11" cy="160" r="2"/><circle cx="309" cy="160" r="2"/>
+  </g>
+</svg>

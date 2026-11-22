@@ -1,6 +1,6 @@
 // 관리자·행사장 화면·참가자 폰과 Durable Object가 주고받는 메시지 형식입니다.
 import { z } from "zod";
-import type { GameDef, Run, TeamRank } from "./engine";
+import { RHYTHM_LANES, type GameDef, type Run, type TeamRank } from "./engine";
 
 export const MAX_PLAYERS = 500;
 export const MAX_TEAMS = 30;
@@ -19,14 +19,25 @@ export type Phase = "lobby" | "select" | "rules" | "countdown" | "playing" | "re
 
 export type TeamInfo = { id: string; name: string; color: string };
 export type TeamView = TeamInfo & { score: number; members: number; online: number; average: number; finished: number };
-export type TopPlayer = { nickname: string; teamId: string; label: string };
+/** 실명 가운데를 가립니다. 방경 → 방*, 방일경 → 방*경, 남궁일경 → 남**경 */
+export function maskName(name: string): string {
+  const letters = [...name.trim()];
+  if (letters.length < 2) return letters.join("");
+  if (letters.length === 2) return `${letters[0]}*`;
+  return `${letters[0]}${"*".repeat(letters.length - 2)}${letters.at(-1)}`;
+}
+/** 행사장 화면에 보이는 참가자 표기. 실명은 서버에서 가린 뒤 내보냅니다. */
+export const displayName = (player: { nickname: string; name: string }) => `${player.nickname} (${maskName(player.name)})`;
+
+/** display는 "닉네임 (가린 이름)", value는 경주 화면 막대 길이에 쓰는 값입니다. */
+export type TopPlayer = { nickname: string; display: string; teamId: string; label: string; value: number };
 /** mvps는 해당 라운드 개인 1등입니다. 동점이면 여러 명입니다. */
 export type PlayedGame = { gameId: string; winners: string[]; mvps: TopPlayer[] };
 export type GameMode = "team" | "solo";
 /** 행사장 화면의 탭. 게임 시작 시 진행으로 돌아가고, 게임 중에는 바꿀 수 없습니다. */
 export type ScreenTab = "progress" | "ranking";
 /** 전체 라운드를 합산한 개인 순위 한 줄 */
-export type Leader = { rank: number; nickname: string; teamId: string; score: number };
+export type Leader = { rank: number; nickname: string; display: string; teamId: string; score: number };
 
 /** 누적 점수 순위. 동점은 같은 등수입니다. */
 export function rankByScore(players: { id: string; score: number }[]): Map<string, number> {
@@ -104,6 +115,8 @@ const gameInput = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("answer"), index: z.number().int().min(0), choice: z.number().int().min(0).max(20) }),
   z.strictObject({ type: z.literal("foot"), foot: z.enum(["L", "R"]) }),
   z.strictObject({ type: z.literal("gauge"), ms: z.number().min(0).max(5000) }),
+  z.strictObject({ type: z.literal("tap"), lane: z.number().int().min(0).max(RHYTHM_LANES - 1) }),
+  z.strictObject({ type: z.literal("typed"), index: z.number().int().min(0).max(1000), text: z.string().max(100), done: z.boolean() }),
   z.strictObject({ type: z.literal("reflex"), ms: z.number().min(0).max(60000).nullable() }),
   z.strictObject({ type: z.literal("memory"), index: z.number().int().min(0), cells: z.array(z.number().int().min(0).max(15)).max(16) }),
   z.strictObject({ type: z.literal("guess"), value: z.number().int().min(1).max(100) }),
@@ -149,4 +162,6 @@ export type ServerMessage =
   | { t: "entered"; mode: GameMode; teams: TeamInfo[] }
   | { t: "joined"; token: string; personal: Personal }
   | { t: "personal"; personal: Personal }
+  /** 게임 중 내 실시간 등수. startedAt으로 어느 판의 등수인지 구분합니다. */
+  | { t: "live"; startedAt: number; rank: number; ranked: number }
   | { t: "error"; code: ErrorCode; message: string };

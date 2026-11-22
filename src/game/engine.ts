@@ -1,6 +1,6 @@
 // 서버(Worker)와 폰이 함께 쓰는 순수 게임 규칙입니다. 같은 입력이면 양쪽 결과가 항상 같아야 합니다.
 
-export type GameKind = "counter" | "quiz" | "race" | "gauge" | "reflex" | "memory" | "updown";
+export type GameKind = "counter" | "quiz" | "race" | "gauge" | "reflex" | "memory" | "updown" | "typing" | "rhythm";
 
 export type GameDef = {
   id: string;
@@ -15,6 +15,10 @@ export type GameDef = {
   rules: string[];
   unit: string;
   penaltyMs?: number;
+  /** 타자 게임 문장 */
+  sentences?: string[];
+  /** 리듬 게임 음악. 노트는 bpm 박자 위에 놓이고, 음악은 게임 시작 순간 0초부터 재생합니다. firstBeatMs는 곡에서 첫 박이 나오는 시각입니다. */
+  music?: { src: string; bpm: number; firstBeatMs: number };
 };
 
 /** 팀 하나의 게임 진행 상태. 값이 전부 직렬화 가능해야 합니다. */
@@ -36,7 +40,9 @@ export type GameInput =
   | { type: "gauge"; ms: number }
   | { type: "reflex"; ms: number | null }
   | { type: "memory"; index: number; cells: number[] }
-  | { type: "guess"; value: number };
+  | { type: "guess"; value: number }
+  | { type: "typed"; index: number; text: string; done: boolean }
+  | { type: "tap"; lane: number };
 
 export type Question = {
   prompt: string;
@@ -134,6 +140,70 @@ export function memoryPattern(seed: number, level: number): number[] {
 
 export const secretNumber = (seed: number) => 1 + pick(seed, 900, 1, 100);
 
+/** 타자 게임 문장. 판마다 순서가 바뀌고, 같은 판에서는 모두 같은 순서입니다. 다 치면 처음부터 반복합니다. */
+export function typingSentences(def: GameDef, seed: number, count: number): string[] {
+  const list = def.sentences ?? [];
+  if (list.length === 0) return [];
+  const order = shuffled(seed, 300, list.length);
+  return Array.from({ length: count }, (_, i) => list[order[i % list.length]]);
+}
+
+// 리듬 게임: 노트 사이를 판정 범위의 두 배보다 넓게 두어, 어느 순간이든 판정 대상 노트가 하나뿐입니다.
+/** 발판 다섯 칸(public/images/dance-pad.svg): 0 왼쪽 아래, 1 왼쪽 위, 2 가운데, 3 오른쪽 위, 4 오른쪽 아래 */
+export const RHYTHM_LANES = 5;
+export const RHYTHM_PERFECT_MS = 80;
+export const RHYTHM_GOOD_MS = 160;
+export const RHYTHM_POINTS = { perfect: 100, good: 50, wrong: -30 } as const;
+const RHYTHM_FIRST_MS = 2000;
+const RHYTHM_MIN_GAP_MS = 360;
+
+export type RhythmNote = { at: number; lane: number };
+export type RhythmJudge = "perfect" | "good" | "wrong";
+
+const DEFAULT_BPM = 120;
+
+/**
+ * 노트 목록(시작 후 ms). 노트는 음악의 박자 위에만 놓입니다. 처음엔 두 박마다, 뒤로 갈수록 매 박에 가깝게 촘촘해집니다.
+ * 판마다 줄 배치가 바뀌고, 같은 판에서는 모두 같습니다.
+ */
+export function rhythmChart(def: GameDef, seed: number): RhythmNote[] {
+  const durationMs = def.durationSec * 1000;
+  const beat = 60000 / (def.music?.bpm ?? DEFAULT_BPM);
+  const firstBeat = def.music?.firstBeatMs ?? 0;
+  // 박이 너무 짧은 빠른 곡은 판정 범위가 겹치지 않도록 여러 박을 한 칸으로 씁니다.
+  const unit = Math.ceil(RHYTHM_MIN_GAP_MS / beat);
+  const last = durationMs - 1000;
+  const notes: RhythmNote[] = [];
+  let k = Math.max(0, Math.ceil((RHYTHM_FIRST_MS - firstBeat) / (beat * unit))) * unit;
+  for (let i = 0; firstBeat + k * beat < last; i++) {
+    const at = Math.round(firstBeat + k * beat);
+    let lane = pick(seed, 600 + i, 1, RHYTHM_LANES);
+    // 같은 줄이 세 번 넘게 이어지지 않게 합니다.
+    if (i >= 3 && notes.slice(-3).every(note => note.lane === lane)) lane = (lane + 1) % RHYTHM_LANES;
+    notes.push({ at, lane });
+    const progress = at / durationMs;
+    const busy = progress < 0.3 ? 25 : progress < 0.7 ? 55 : 85;
+    k += (pick(seed, 600 + i, 2, 100) < busy ? 1 : 2) * unit;
+  }
+  return notes;
+}
+
+/** 탭 하나를 판정합니다. elapsed는 시작 후 ms, from은 아직 판정하지 않은 첫 노트 번호입니다. */
+export function judgeTap(chart: RhythmNote[], from: number, lane: number, elapsed: number): { judge: RhythmJudge; next: number } {
+  let i = from;
+  while (i < chart.length && chart[i].at < elapsed - RHYTHM_GOOD_MS) i += 1;
+  const note = chart[i];
+  if (!note || note.lane !== lane || Math.abs(note.at - elapsed) > RHYTHM_GOOD_MS) return { judge: "wrong", next: from };
+  return { judge: Math.abs(note.at - elapsed) <= RHYTHM_PERFECT_MS ? "perfect" : "good", next: i + 1 };
+}
+
+/** 앞에서부터 맞게 친 글자 수 */
+export function correctPrefix(target: string, text: string): number {
+  let same = 0;
+  while (same < target.length && same < text.length && target[same] === text[same]) same += 1;
+  return same;
+}
+
 /** 팀마다 다른 순간에 화면이 바뀌어 옆 팀을 보고 누를 수 없습니다. */
 export function reflexDelay(seed: number, teamId: string): number {
   let salt = 0;
@@ -192,6 +262,24 @@ export function applyInput(def: GameDef, run: Run, input: GameInput, seed: numbe
       const value = run.value + 1;
       if (input.value === secret) return { ...finish(value), hint: "correct" };
       return { ...next, value, hint: input.value < secret ? "up" : "down" };
+    }
+    case "typed": {
+      if (def.kind !== "typing" || input.index !== run.index) return run;
+      const sentences = typingSentences(def, seed, run.index + 1);
+      const target = sentences.at(-1);
+      if (!target) return run;
+      const text = input.text.normalize("NFC").trimEnd();
+      const typedBefore = sentences.slice(0, -1).reduce((sum, sentence) => sum + sentence.length, 0);
+      const value = typedBefore + correctPrefix(target, text);
+      if (!input.done) return { ...next, value };
+      return text === target ? { ...next, value, index: run.index + 1 } : { ...next, value, wrong: run.wrong + 1 };
+    }
+    case "tap": {
+      if (def.kind !== "rhythm") return run;
+      const { judge, next: index } = judgeTap(rhythmChart(def, seed), run.index, input.lane, now - startedAt);
+      // 마구 누르면 감점되어 연타로는 점수를 얻을 수 없습니다.
+      if (judge === "wrong") return { ...next, value: Math.max(0, run.value + RHYTHM_POINTS.wrong), wrong: run.wrong + 1 };
+      return { ...next, value: run.value + RHYTHM_POINTS[judge], index };
     }
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowLeftRight, Brain, Calculator, Footprints, Grid3x3, Hammer, LockKeyhole, MoveHorizontal, Palette, Piano, Pointer, Scale, Scissors, Thermometer, Vibrate, X, Zap,
+  ArrowLeftRight, Brain, Calculator, Footprints, Grid3x3, Hammer, Keyboard, LockKeyhole, MoveHorizontal, Music, Palette, Piano, Pointer, Scale, Scissors, Thermometer, Vibrate, X, Zap,
   type LucideIcon,
 } from "lucide-react";
 import QRCode from "qrcode";
@@ -29,7 +29,7 @@ export const PHASE_LABELS: Record<Phase, string> = {
 };
 
 const ICONS: Record<string, LucideIcon> = {
-  ArrowLeftRight, Brain, Calculator, Footprints, Grid3x3, Hammer, LockKeyhole, MoveHorizontal, Palette, Piano, Pointer, Scale, Scissors, Thermometer, Vibrate, X, Zap,
+  ArrowLeftRight, Brain, Calculator, Footprints, Grid3x3, Hammer, Keyboard, LockKeyhole, MoveHorizontal, Music, Palette, Piano, Pointer, Scale, Scissors, Thermometer, Vibrate, X, Zap,
 };
 
 export function GameIcon({ name, className }: { name: string; className?: string }) {

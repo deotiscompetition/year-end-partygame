@@ -1,7 +1,7 @@
 // 참가자 봇 시뮬레이터: 방을 만들고 N명을 입장시킨 뒤 전체 게임을 차례로 끝까지 진행해 점수를 검증합니다.
 // 사용: pnpm simulate --players=40 --teams=5 --url=http://127.0.0.1:8797 --password=local-admin [--games=tap,race]
 import { readFileSync } from "node:fs";
-import { memoryPattern, question, reflexDelay, secretNumber } from "../src/game/engine.ts";
+import { memoryPattern, question, reflexDelay, RHYTHM_LANES, rhythmChart, secretNumber, typingSentences } from "../src/game/engine.ts";
 
 const options = Object.fromEntries(process.argv.slice(2).filter(arg => arg.startsWith("--")).map(arg => {
   const [key, value] = arg.slice(2).split("=");
@@ -159,6 +159,11 @@ function playBot(bot, def, seed, startedAt, endsAt) {
       case "counter": push({ type: "count", n: 1 }); break;
       case "race": foot = foot === "L" ? "R" : "L"; push({ type: "foot", foot }); break;
       case "gauge": push({ type: "gauge", ms: 100 * skill }); break;
+      case "typing":
+        push({ type: "typed", index, text: "틀린 문장", done: true });
+        push({ type: "typed", index, text: typingSentences(def, seed, index + 1).at(-1), done: true });
+        index += 1;
+        break;
       case "quiz":
         if (def.goal && index >= def.goal) break;
         push({ type: "answer", index, choice: question(def.id, seed, index).answer });
@@ -175,8 +180,12 @@ function playBot(bot, def, seed, startedAt, endsAt) {
         break;
     }
   }, def.kind === "reflex" ? 100000 : Math.round(120 / skill));
+  // 리듬: 노트 시각에 맞춰 누릅니다. 실력이 낮을수록 어긋나고, 가끔 다른 줄을 눌러 감점됩니다.
+  const notes = def.kind === "rhythm" ? rhythmChart({ ...def, durationSec: (endsAt - startedAt) / 1000 }, seed).map((note, i) => setTimeout(() => {
+    push({ type: "tap", lane: (bot.i + i) % 9 === 0 ? (note.lane + 1) % RHYTHM_LANES : note.lane });
+  }, Math.max(0, startedAt + note.at + Math.round((1 - skill) * 300) - 40 - now()))) : [];
   if (def.kind === "reflex") setTimeout(() => push({ type: "reflex", ms: bot.i % 11 === 0 ? 10 : 150 + (bot.i % 200) }), Math.max(0, startedAt + reflexDelay(seed, bot.personal.playerId) - now()));
-  return () => { clearInterval(flush); clearInterval(step); };
+  return () => { clearInterval(flush); clearInterval(step); notes.forEach(clearTimeout); };
 }
 
 send(admin, { t: "openSelect" });
@@ -231,6 +240,9 @@ const byScore = adminInfo.players.toSorted((a, b) => b.score - a.score);
 assert(stage.leaders.length === Math.min(10, playerCount), "개인 순위 수");
 assert(stage.leaders.every((leader, i) => leader.score === byScore[i].score && (i === 0 || stage.leaders[i - 1].score >= leader.score)), "개인 순위가 점수와 다름");
 assert(stage.leaders[0].rank === 1 && byScore[0].score > 0, "개인 1등 없음");
+// 행사장 화면 데이터에는 가린 이름만 있어야 합니다(봇 실명은 이름0, 이름1 …).
+assert(stage.leaders.every(leader => /^봇\d+ \(이\*+\d\)$/.test(leader.display)), "닉네임 (가린 이름) 표기가 아님");
+assert(!JSON.stringify(stage).includes("이름"), "행사장 데이터에 실명이 포함됨");
 
 // 행사장 화면 탭: 관리자가 순위로 바꿀 수 있고, 게임을 시작하면 진행으로 돌아옵니다.
 send(admin, { t: "screenTab", tab: "ranking" });
