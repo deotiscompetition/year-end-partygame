@@ -53,10 +53,10 @@ function Names({ names }: { names: { key: string; label: string; color: string }
 }
 
 function Winner({ stage, played, round }: { stage: StageView; played: PlayedGame; round: number }) {
-  const mvps = played.mvps.map(player => player.nickname).join(", ");
+  const mvps = played.mvps.map(player => player.display).join(", ");
   const names = stage.mode === "team"
     ? teamsOf(stage, played.winners).map(team => ({ key: team.id, label: team.name, color: team.color }))
-    : played.mvps.map(player => ({ key: player.nickname, label: player.nickname, color: YELLOW }));
+    : played.mvps.map(player => ({ key: player.nickname, label: player.display, color: YELLOW }));
   return (
     <>
       <p className="neon-text text-4xl font-bold" style={glow(CYAN)}>{round}라운드 · {gameById(played.gameId)?.name}</p>
@@ -90,7 +90,7 @@ function TeamRanks({ stage, limit, large }: { stage: StageView; limit: number; l
   );
 }
 
-/** 상품 안내용 개인 누적 순위. 행사장 화면에는 닉네임만 보입니다. */
+/** 상품 안내용 개인 누적 순위. 행사장 화면에는 닉네임과 가린 이름이 보입니다. */
 function Leaders({ stage, large }: { stage: StageView; large?: boolean }) {
   return (
     <aside className="neon-frame flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-4" style={glow(PINK)}>
@@ -102,7 +102,7 @@ function Leaders({ stage, large }: { stage: StageView; large?: boolean }) {
             return (
               <li key={leader.nickname} className={`flex items-baseline gap-3 ${large ? "text-3xl" : "text-base leading-6"}`}>
                 <span className="neon-text w-10 text-right font-black tabular-nums" style={glow(color)}>{leader.rank}</span>
-                <span className={`neon-text min-w-0 flex-1 truncate ${leader.rank <= 3 ? "font-black" : "font-bold"}`} style={glow(color)}>{leader.nickname}</span>
+                <span className={`neon-text min-w-0 flex-1 truncate ${leader.rank <= 3 ? "font-black" : "font-bold"}`} style={glow(color)}>{leader.display}</span>
                 <span className="tabular-nums text-mist">{leader.score}점</span>
               </li>
             );
@@ -118,11 +118,11 @@ function History({ stage }: { stage: StageView }) {
   return (
     <ol className="flex shrink-0 justify-center gap-2 overflow-hidden" aria-label="최근 라운드 1등">
       {stage.played.slice(first).map((played, i) => {
-        const names = stage.mode === "team" ? teamsOf(stage, played.winners).map(team => team.name) : played.mvps.map(player => player.nickname);
+        const names = stage.mode === "team" ? teamsOf(stage, played.winners).map(team => team.name) : played.mvps.map(player => player.display);
         return (
           <li key={first + i} className="neon-frame flex shrink-0 items-center gap-2 px-3 py-1 text-sm" style={glow(CYAN)}>
             <span className="text-mist">{first + i + 1}R</span>
-            <span className="max-w-32 truncate font-bold">{names.join(", ") || "-"}</span>
+            <span className="max-w-48 truncate font-bold">{names.join(", ") || "-"}</span>
           </li>
         );
       })}

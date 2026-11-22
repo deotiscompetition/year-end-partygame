@@ -6,6 +6,8 @@ import { GamePad } from "@/components/play/GamePad";
 import { ConnectionEnded, GameIcon, Notice, stageGame } from "@/components/shared";
 import catalog from "@/content/games.json";
 import type { GameMode, Personal, ServerMessage, StageView, TeamInfo } from "@/game/protocol";
+
+type LiveRank = Extract<ServerMessage, { t: "live" }>;
 import { loadPlayer, savePlayer } from "@/room/storage";
 import { secondsLeft, useNow, useRoom } from "@/room/useRoom";
 
@@ -28,6 +30,7 @@ export function PlayRoom() {
   const [error, setError] = useState("");
   const [fatal, setFatal] = useState("");
   const [motionReady, setMotionReady] = useState(false);
+  const [live, setLive] = useState<LiveRank | null>(null);
 
   function handle(message: ServerMessage) {
     switch (message.t) {
@@ -44,6 +47,9 @@ export function PlayRoom() {
         break;
       case "personal":
         setPersonal(message.personal);
+        break;
+      case "live":
+        setLive(message);
         break;
       case "error":
         if (message.code === "BAD_TOKEN") {
@@ -107,7 +113,7 @@ export function PlayRoom() {
         {!connected && <span className="shrink-0 text-berry">다시 연결 중…</span>}
       </header>
       <div className="min-h-0 flex-1">
-        <Phase stage={stage} personal={personal} offset={offset} send={send} motionReady={motionReady} onMotionReady={() => setMotionReady(true)} />
+        <Phase stage={stage} personal={personal} live={live?.startedAt === stage.startedAt ? live : null} offset={offset} send={send} motionReady={motionReady} onMotionReady={() => setMotionReady(true)} />
       </div>
     </main>
   );
@@ -168,7 +174,7 @@ function ProfileStep({ team, disabled, onBack, onSubmit }: { team?: TeamInfo; di
 
 type Send = ReturnType<typeof useRoom>["send"];
 
-function Phase({ stage, personal, offset, send, motionReady, onMotionReady }: { stage: StageView; personal: Personal; offset: number; send: Send; motionReady: boolean; onMotionReady: () => void }) {
+function Phase({ stage, personal, live, offset, send, motionReady, onMotionReady }: { stage: StageView; personal: Personal; live: LiveRank | null; offset: number; send: Send; motionReady: boolean; onMotionReady: () => void }) {
   const now = useNow(100);
   const def = stageGame(stage);
   const myTeam = stage.teamRanking.find(row => row.teamId === personal.teamId);
@@ -205,6 +211,7 @@ function Phase({ stage, personal, offset, send, motionReady, onMotionReady }: { 
           playerId={personal.playerId}
           offset={offset}
           timeLeft={secondsLeft(stage.phaseEndsAt, now, offset)}
+          liveRank={live && { rank: live.rank, ranked: live.ranked }}
           send={send}
         />
       );

@@ -1,8 +1,8 @@
 "use client";
 
-import { Crown, Footprints } from "lucide-react";
+import { Crown, Footprints, Volume2, VolumeX } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { RankingView, RoundResult } from "@/components/screen/NeonBoard";
 import { categoryLabel, ConnectionEnded, gameById, GameIcon, games, Notice, QrImage, stageGame } from "@/components/shared";
 import { averageLabel, barLength, type GameDef } from "@/game/engine";
@@ -23,6 +23,7 @@ export function ScreenRoom() {
     onMessage: message => { if (message.t === "error") setError(message.message); },
   });
   const origin = useSyncExternalStore(noSubscribe, () => window.location.origin, () => "");
+  const music = useGameMusic(stage, offset);
 
   if (ended) return <ConnectionEnded ended={ended} onRetry={reconnect} />;
   if (error && !stage) return <Notice title={error} />;
@@ -38,6 +39,14 @@ export function ScreenRoom() {
         <h1 className="neon-text neon-flicker flex-1 truncate text-2xl font-black">{stage.title}</h1>
         {!connected && <span className="text-berry">연결 다시 시도 중…</span>}
         <span className="text-mist">{stage.playerCount}명 참가 중</span>
+        {music.element}
+        <button
+          onClick={music.toggle}
+          aria-pressed={music.on}
+          className={`rounded-lg border px-3 py-1 font-bold ${music.on ? "border-line text-mist" : "border-gold text-gold"}`}
+        >
+          {music.on ? <><Volume2 aria-hidden className="mr-1 inline size-4" />소리 켜짐</> : <><VolumeX aria-hidden className="mr-1 inline size-4" />소리 켜기</>}
+        </button>
         {!running && (
           <nav className="flex gap-1" aria-label="화면 전환">
             {TABS.map(item => (
@@ -65,6 +74,39 @@ export function ScreenRoom() {
       </div>
     </main>
   );
+}
+
+/** 음악이 있는 게임 중 처음 것. 소리 켜기를 누를 때 미리 불러 둡니다. */
+const firstMusic = games.find(game => game.music)?.music;
+
+/**
+ * 음악은 행사장 화면에서만 틀고 폰은 게임만 보여 줍니다. 게임 시작 순간이 곡의 0초이고, 화면을 늦게 열면 지금 시점부터 이어 틉니다.
+ * 브라우저는 사람이 한 번 눌러야 소리를 내므로, 소리 켜기를 누를 때 재생을 한 번 허락받아 둡니다.
+ */
+function useGameMusic(stage: StageView | null, offset: number) {
+  const audio = useRef<HTMLAudioElement>(null);
+  const [on, setOn] = useState(false);
+  const music = (stage && stageGame(stage)?.music) ?? firstMusic;
+  const playing = on && stage?.phase === "playing" && stage.startedAt !== null && Boolean(stageGame(stage)?.music);
+  const startedAt = stage?.startedAt ?? null;
+  useEffect(() => {
+    const element = audio.current;
+    if (!element) return;
+    if (!playing || startedAt === null) {
+      element.pause();
+      return;
+    }
+    element.currentTime = Math.max(0, (Date.now() + offset - startedAt) / 1000);
+    // 곡 파일이 아직 없거나 재생이 막혀도 게임은 그대로 진행합니다.
+    element.play().catch(() => {});
+  }, [offset, playing, startedAt]);
+  function toggle() {
+    const element = audio.current;
+    if (!on && element) element.play().then(() => element.pause()).catch(() => {});
+    setOn(value => !value);
+  }
+  const element = music ? <audio ref={audio} src={music.src} preload="auto" /> : null;
+  return { on, toggle, element };
 }
 
 const sortedByScore = (teams: TeamView[]) => [...teams].sort((a, b) => b.score - a.score);
@@ -103,7 +145,7 @@ function Select({ stage, url }: { stage: StageView; url: string }) {
         {available.map(game => {
           const rounds = stage.played.filter(entry => entry.gameId === game.id);
           const last = rounds.at(-1);
-          const winner = stage.teams.find(team => team.id === last?.winners[0])?.name ?? last?.mvps[0]?.nickname;
+          const winner = stage.teams.find(team => team.id === last?.winners[0])?.name ?? last?.mvps[0]?.display;
           return (
             <li key={game.id} className="flex min-h-0 flex-col justify-center overflow-hidden rounded-xl border border-line bg-panel/85 px-4 py-1.5">
               <div className="flex items-center gap-2">
@@ -150,19 +192,19 @@ function RoundLog({ stage }: { stage: StageView }) {
             )}
             <div className="flex gap-2">
               <dt className="shrink-0 text-mist">개인 1위</dt>
-              <dd className="truncate font-bold">{topPlayers.map(leader => leader.nickname).join(", ") || "-"}{topPlayers[0] && ` · ${topPlayers[0].score}점`}</dd>
+              <dd className="truncate font-bold">{topPlayers.map(leader => leader.display).join(", ") || "-"}{topPlayers[0] && ` · ${topPlayers[0].score}점`}</dd>
             </div>
           </dl>
           <ol className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden border-t border-line pt-2 text-sm">
             {rounds.map(entry => {
               const winners = stage.mode === "team"
                 ? entry.winners.flatMap(id => stage.teams.filter(team => team.id === id).map(team => team.name))
-                : entry.mvps.map(player => player.nickname);
+                : entry.mvps.map(player => player.display);
               return (
                 <li key={entry.round} className="flex items-baseline gap-2">
                   <span className="shrink-0 tabular-nums text-mist">{entry.round}R</span>
                   <span className="min-w-0 flex-1 truncate">{gameById(entry.gameId)?.name}</span>
-                  <span className="max-w-24 shrink-0 truncate font-bold">{winners.join(", ") || "-"}</span>
+                  <span className="max-w-36 shrink-0 truncate font-bold">{winners.join(", ") || "-"}</span>
                 </li>
               );
             })}
@@ -208,66 +250,74 @@ function Countdown({ stage, offset }: { stage: StageView; offset: number }) {
 function Playing({ stage, offset }: { stage: StageView; offset: number }) {
   const now = useNow();
   const def = gameById(stage.gameId)!;
-  if (stage.mode === "solo") {
-    return (
-      <div className="mx-auto flex h-full max-w-3xl flex-col gap-4">
-        <div className="flex items-center gap-3">
-          <GameIcon name={def.icon} className="size-8 text-gold" />
-          <h2 className="flex-1 text-3xl font-black">{def.name}</h2>
-          <span className="rounded-full bg-gold px-5 py-1 text-3xl font-black tabular-nums text-night">{secondsLeft(stage.phaseEndsAt, now, offset)}</span>
-        </div>
-        <h3 className="text-lg font-bold">실시간 TOP 10</h3>
-        <TopList stage={stage} />
-      </div>
-    );
-  }
   const ranked = [...stage.teams].sort((a, b) => b.average - a.average);
   const best = ranked[0]?.average ?? 0;
-  const isRace = def.kind === "race";
   return (
-    <div className="grid h-full grid-cols-[minmax(0,1fr)_280px] gap-6">
-      <div className="flex min-h-0 flex-col gap-3">
-        <div className="flex items-center gap-3">
-          <GameIcon name={def.icon} className="size-8 text-gold" />
-          <h2 className="flex-1 text-3xl font-black">{def.name}</h2>
-          <span className="rounded-full bg-gold px-5 py-1 text-3xl font-black tabular-nums text-night">{secondsLeft(stage.phaseEndsAt, now, offset)}</span>
-        </div>
-        <ul className={`flex min-h-0 flex-1 flex-col justify-center gap-2 overflow-hidden rounded-xl p-3 ${isRace ? "bg-[#7a3b22]" : ""}`}>
-          {(isRace ? stage.teams : ranked).map(team => {
-            const length = Math.min(1, barLength(def, team.average, best));
-            return (
-              <li key={team.id} className="grid grid-cols-[110px_minmax(0,1fr)_130px] items-center gap-3">
-                <span className="truncate font-bold">{team.name}</span>
-                <div className="relative h-7 rounded-md bg-black/30">
-                  <div className="h-full rounded-md transition-[width] duration-300 ease-linear" style={{ width: `${length * 100}%`, background: team.color }} />
-                  {isRace && <Footprints aria-hidden className="absolute top-0.5 size-6 transition-[left] duration-300 ease-linear" style={{ left: `calc(${length * 100}% - 12px)` }} />}
-                </div>
-                <span className="text-right text-sm tabular-nums">{averageLabel(def, team.average)}</span>
-              </li>
-            );
-          })}
-        </ul>
+    <div className="flex h-full flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <GameIcon name={def.icon} className="size-8 text-gold" />
+        <h2 className="flex-1 text-3xl font-black">{def.name}</h2>
+        <span className="rounded-full bg-gold px-5 py-1 text-3xl font-black tabular-nums text-night">{secondsLeft(stage.phaseEndsAt, now, offset)}</span>
       </div>
-      <aside className="flex min-h-0 flex-col gap-2 overflow-hidden">
-        <h3 className="text-lg font-bold">개인 TOP 10</h3>
-        <TopList stage={stage} />
-      </aside>
+      <div className={`grid min-h-0 flex-1 gap-6 ${stage.mode === "team" ? "grid-cols-[minmax(0,2fr)_minmax(0,3fr)]" : "grid-cols-1"}`}>
+        {stage.mode === "team" && (
+          <section className="flex min-h-0 flex-col gap-2">
+            <h3 className="text-lg font-bold">조 평균</h3>
+            <ul className="flex min-h-0 flex-1 flex-col justify-center gap-2 overflow-hidden">
+              {ranked.map(team => (
+                <li key={team.id} className="grid grid-cols-[80px_minmax(0,1fr)] items-center gap-2">
+                  <span className="truncate font-bold">{team.name}</span>
+                  <div className="relative h-8 rounded-md bg-black/30">
+                    <div className="h-full rounded-md transition-[width] duration-300 ease-linear" style={{ width: `${Math.min(1, barLength(def, team.average, best)) * 100}%`, background: team.color }} />
+                    <span className="absolute inset-y-0 left-2 flex items-center text-sm font-bold tabular-nums text-snow [text-shadow:0_0_4px_#000]">{averageLabel(def, team.average)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        <RaceLanes stage={stage} def={def} />
+      </div>
     </div>
   );
 }
 
-function TopList({ stage }: { stage: StageView }) {
+const LANES = 10;
+const SOLO_COLOR = "#ffc94d";
+
+/** 실시간 개인 경주: 상위 10명이 점수만큼 달려 나갑니다. 순위가 바뀌면 레인 순서도 바뀝니다. */
+function RaceLanes({ stage, def }: { stage: StageView; def: GameDef }) {
+  const best = Math.max(0, ...stage.top.map(player => player.value));
+  const finish = Boolean(def.goal) || def.kind === "race";
   return (
-    <ol className="flex flex-col gap-1">
-      {stage.top.map((player, i) => (
-        <li key={player.nickname} className="flex items-center gap-2 rounded-lg bg-panel px-3 py-1 text-sm">
-          <span className="w-5 text-mist">{i + 1}</span>
-          <span className="size-2.5 rounded-full" style={{ background: stage.teams.find(team => team.id === player.teamId)?.color }} />
-          <span className="flex-1 truncate font-bold">{player.nickname}</span>
-          <span className="tabular-nums text-mist">{player.label}</span>
-        </li>
-      ))}
-    </ol>
+    <section className="flex min-h-0 flex-col gap-2">
+      <h3 className="text-lg font-bold">실시간 개인 TOP {LANES} <span className="text-sm font-normal text-mist">내 등수는 폰에서 확인하세요</span></h3>
+      <ol className={`flex min-h-0 flex-1 flex-col justify-around overflow-hidden rounded-xl bg-panel/60 px-3 py-2 ${finish ? "border-r-8 border-dashed border-snow/60" : ""}`}>
+        {Array.from({ length: LANES }, (_, i) => {
+          const player = stage.top[i];
+          if (!player) return <li key={`empty-${i}`} className="h-9 border-b border-dashed border-line/40" />;
+          const color = stage.teams.find(team => team.id === player.teamId)?.color ?? SOLO_COLOR;
+          const length = Math.min(1, barLength(def, player.value, best));
+          return (
+            <li key={player.nickname} className="grid grid-cols-[28px_minmax(0,1fr)_72px] items-center gap-2 border-b border-dashed border-line/40">
+              <span className="text-right text-lg font-black tabular-nums text-mist">{i + 1}</span>
+              <div className="relative h-9">
+                <div className="absolute inset-y-3 left-0 rounded-full opacity-40 transition-[width] duration-300 ease-linear" style={{ width: `${length * 100}%`, background: color }} />
+                {/* left와 translate를 같은 비율로 두면 이름표가 0%에선 왼쪽 끝, 100%에선 오른쪽 끝에 맞춰 달립니다. */}
+                <span
+                  className="absolute top-0 flex h-9 max-w-[60%] items-center gap-1 whitespace-nowrap rounded-full px-3 text-sm font-bold text-night transition-all duration-300 ease-linear"
+                  style={{ left: `${length * 100}%`, transform: `translateX(-${length * 100}%)`, background: color }}
+                >
+                  <Footprints aria-hidden className="size-4 shrink-0" />
+                  <span className="truncate">{player.display}</span>
+                </span>
+              </div>
+              <span className="text-right text-sm tabular-nums">{player.label}</span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 
@@ -276,7 +326,7 @@ const REVEAL_MS = 1400;
 function Final({ stage }: { stage: StageView }) {
   // 개인전은 개인 TOP 10을 같은 방식으로 발표합니다.
   const teams = stage.mode === "solo"
-    ? stage.leaders.map(leader => ({ id: leader.nickname, name: leader.nickname, color: "#ffc94d", score: leader.score }))
+    ? stage.leaders.map(leader => ({ id: leader.nickname, name: leader.display, color: "#ffc94d", score: leader.score }))
     : sortedByScore(stage.teams);
   // 꼴찌부터 한 조씩 공개하고 마지막에 우승 조를 보여 줍니다.
   const [shown, setShown] = useState(0);
