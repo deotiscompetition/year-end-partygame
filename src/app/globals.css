@@ -113,3 +113,8 @@ html, body {
   .ticker { width: auto; white-space: normal; font-size: 3vmin; }
   .ticker-copy { display: none; }
 }
+
+@keyframes character-step {
+  0%, 100% { transform: translateY(1px) rotate(-5deg); }
+  50% { transform: translateY(-3px) rotate(5deg); }
+}
