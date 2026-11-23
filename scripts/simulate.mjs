@@ -1,5 +1,6 @@
 // 참가자 봇 시뮬레이터: 방을 만들고 N명을 입장시킨 뒤 전체 게임을 차례로 끝까지 진행해 점수를 검증합니다.
 // 사용: pnpm simulate --players=40 --teams=5 --url=http://127.0.0.1:8797 --password=local-admin [--games=tap,race]
+import { BLANK_AVATAR } from "../src/game/avatar.ts";
 import { readFileSync } from "node:fs";
 import { memoryPattern, question, reflexDelay, RHYTHM_LANES, rhythmChart, secretNumber, typingSentences } from "../src/game/engine.ts";
 
@@ -103,6 +104,21 @@ await sleep(200);
 assert(probeMessages.at(-1)?.t === "entered" && probeMessages.at(-1).teams.length === teamCount && probeMessages.at(-1).mode === stage.mode, "조 목록을 받지 못함");
 probe.close();
 
+const plaza = new Map();
+let plazaScores = null;
+const onScreenMessage = message => {
+  if (message.t === "plaza") {
+    plaza.clear();
+    for (const player of message.players) plaza.set(player.id, player);
+  }
+  if (message.t === "plazaPlayer") plaza.set(message.player.id, message.player);
+  if (message.t === "plazaScores") plazaScores = message;
+  if (message.t === "plazaRemove") plaza.delete(message.playerId);
+  notify();
+};
+let screen = await connect(code, onScreenMessage);
+send(screen, { t: "screen", key: screenKey });
+
 const clock = { offset: 0 };
 const bots = [];
 for (let i = 0; i < playerCount; i++) {
@@ -112,6 +128,7 @@ for (let i = 0; i < playerCount; i++) {
     if (message.t === "personal") bot.personal = message.personal;
     if (message.t === "stage") { bot.stage = message.stage; clock.offset = Math.max(clock.offset, message.now - Date.now()); }
     if (message.t === "error") bot.error = message;
+    notify();
   });
   send(bot.socket, { t: "join", entryCode: "1234", teamId: solo ? "" : stage.teams[i % teamCount].id, name: `이름${i}`, nickname: `봇${i}` });
   bots.push(bot);
@@ -134,14 +151,32 @@ assert(stage.mode === (solo ? "solo" : "team"), "입장 후 진행 방식이 바
 
 // 재접속: 같은 토큰으로 돌아오면 인원이 늘지 않아야 합니다.
 const returning = bots[0];
+await until(() => plaza.size === playerCount && returning.personal, "전광판 광장 전원 표시", 8000);
+assert([...plaza.values()].every(player => player.avatar === null && Object.keys(player).sort().join() === "avatar,id,nickname,teamId"), "광장의 기본 캐릭터 또는 개인정보 처리 오류");
+const avatar = "1" + BLANK_AVATAR.slice(1);
+const updatedAvatar = "2" + BLANK_AVATAR.slice(1);
+const returningId = returning.personal.playerId;
+for (const drawing of [avatar, updatedAvatar, null, updatedAvatar]) {
+  send(returning.socket, { t: "avatar", avatar: drawing });
+  await until(() => returning.personal.avatar === drawing && plaza.get(returningId)?.avatar === drawing, "캐릭터 저장 및 전광판 반영", 8000);
+}
+screen.close();
+plaza.clear();
+screen = await connect(code, onScreenMessage);
+send(screen, { t: "screen", key: screenKey });
+await until(() => plaza.size === playerCount && plaza.get(returningId)?.avatar === updatedAvatar, "전광판 재연결 후 캐릭터 표시", 8000);
+returning.personal = null;
 returning.socket.close();
 await sleep(200);
 returning.socket = await connect(code, message => {
   if (message.t === "personal") returning.personal = message.personal;
   if (message.t === "stage") returning.stage = message.stage;
+  notify();
 });
 send(returning.socket, { t: "resume", token: returning.token });
 await until(() => returning.personal && stage.playerCount === playerCount, "재접속");
+assert(returning.personal.avatar === updatedAvatar, "캐릭터가 재접속 후 유지되지 않음");
+console.log("통과: 광장 전원 표시·캐릭터 저장/수정/초기화·폰/전광판 재접속");
 
 const now = () => Date.now() + clock.offset;
 // 봇 하나의 게임 행동. skill이 낮을수록 느립니다. 실제 폰처럼 0.5초마다 묶어 보냅니다.
@@ -211,6 +246,13 @@ for (const def of sequence) {
   const started = Date.now();
   // 시연 시간을 줄이려고 제한 시간이 긴 게임은 6초 뒤 관리자가 끝냅니다(순간 포착은 끝까지).
   const stoppers = bots.map(bot => playBot(bot, def, stage.seed, stage.startedAt, stage.phaseEndsAt));
+  const startedAt = stage.startedAt;
+  await until(() => plazaScores?.startedAt === startedAt && plazaScores.scores.length === playerCount, "전광판 개인 점수 목록", 5000);
+  if (def.kind === "tap") {
+    await until(() => (
+      plazaScores?.startedAt === startedAt && plazaScores.scores.some(([id, label]) => id === returningId && /^[1-9]/.test(label))
+    ), "전광판 개인 점수 갱신", 5000);
+  }
   const limit = def.kind === "reflex" ? 13000 : 6000;
   const endEarly = setTimeout(() => send(admin, { t: "endGame" }), limit);
   await until(() => stage.phase === "result", `${def.id} 종료`);
@@ -315,4 +357,5 @@ if (!options.keep) {
   console.log("통과: 방 닫기");
 }
 admin.close();
+screen.close();
 process.exit(0);

@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useState, useSyncExternalStore, type FormEvent } from "react";
+import { AvatarEditor } from "@/components/play/AvatarEditor";
 import { GamePad } from "@/components/play/GamePad";
 import { ConnectionEnded, GameIcon, Notice, stageGame } from "@/components/shared";
 import catalog from "@/content/games.json";
@@ -29,6 +30,7 @@ export function PlayRoom() {
   const [personal, setPersonal] = useState<Personal | null>(null);
   const [error, setError] = useState("");
   const [fatal, setFatal] = useState("");
+  const [editingAvatar, setEditingAvatar] = useState(false);
   const [motionReady, setMotionReady] = useState(false);
   const [live, setLive] = useState<LiveRank | null>(null);
 
@@ -106,14 +108,28 @@ export function PlayRoom() {
   }
 
   if (!stage) return <Notice title="다시 연결하는 중…" />;
+  const canEditAvatar = stage.phase !== "countdown" && stage.phase !== "playing";
   return (
     <main className="flex h-dvh flex-col overflow-hidden">
       <header className="flex items-center justify-between gap-2 border-b border-line px-4 py-2 text-sm">
         <span className="truncate font-bold">{personal.nickname}{stage.mode === "team" && ` · ${stage.teams.find(team => team.id === personal.teamId)?.name}`}</span>
+        {canEditAvatar && !editingAvatar && (
+          <button type="button" className="ml-auto shrink-0 rounded-lg border border-gold/60 px-3 py-2 font-bold text-gold"
+            onClick={() => setEditingAvatar(true)}>캐릭터 그리기</button>
+        )}
         {!connected && <span className="shrink-0 text-berry">다시 연결 중…</span>}
       </header>
       <div className="min-h-0 flex-1">
-        <Phase stage={stage} personal={personal} live={live?.startedAt === stage.startedAt ? live : null} offset={offset} send={send} motionReady={motionReady} onMotionReady={() => setMotionReady(true)} />
+        {editingAvatar && (
+          <div className="h-full" hidden={!canEditAvatar}>
+            <AvatarEditor avatar={personal.avatar} connected={connected} onClose={() => setEditingAvatar(false)}
+              onSave={avatar => { setError(""); return send({ t: "avatar", avatar }); }} />
+            {error && <span role="alert" className="absolute inset-x-4 bottom-3 text-center text-berry">{error}</span>}
+          </div>
+        )}
+        {(!editingAvatar || !canEditAvatar) && (
+          <Phase stage={stage} personal={personal} live={live?.startedAt === stage.startedAt ? live : null} offset={offset} send={send} motionReady={motionReady} onMotionReady={() => setMotionReady(true)} />
+        )}
       </div>
     </main>
   );

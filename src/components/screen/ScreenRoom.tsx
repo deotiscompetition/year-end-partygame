@@ -1,12 +1,13 @@
 "use client";
 
-import { Crown, Footprints, Volume2, VolumeX } from "lucide-react";
+import { Crown, Volume2, VolumeX } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { CharacterPlaza } from "@/components/screen/CharacterPlaza";
 import { RankingView, RoundResult } from "@/components/screen/NeonBoard";
 import { categoryLabel, ConnectionEnded, gameById, GameIcon, games, Notice, QrImage, stageGame } from "@/components/shared";
-import { averageLabel, barLength, type GameDef } from "@/game/engine";
-import type { StageView, TeamView } from "@/game/protocol";
+import { averageLabel, type GameDef } from "@/game/engine";
+import type { PlazaPlayer, ServerMessage, StageView, TeamView } from "@/game/protocol";
 import { secondsLeft, useNow, useRoom } from "@/room/useRoom";
 
 const noSubscribe = () => () => {};
@@ -17,10 +18,26 @@ export function ScreenRoom() {
   const code = params.get("room") ?? "";
   const key = params.get("key") ?? "";
   const [error, setError] = useState("");
+  const [plaza, setPlaza] = useState<PlazaPlayer[]>([]);
+  const [records, setRecords] = useState<Extract<ServerMessage, { t: "plazaScores" }> | null>(null);
   const { stage, offset, connected, ended, reconnect, send } = useRoom({
     code,
     hello: () => (key ? { t: "screen", key } : null),
-    onMessage: message => { if (message.t === "error") setError(message.message); },
+    onMessage: message => {
+      switch (message.t) {
+        case "error": setError(message.message); break;
+        case "plaza": setPlaza(message.players); setRecords(null); break;
+        case "plazaPlayer": {
+          const player = message.player;
+          setPlaza(current => current.some(entry => entry.id === player.id)
+            ? current.map(entry => entry.id === player.id ? player : entry)
+            : [...current, player]);
+          break;
+        }
+        case "plazaRemove": setPlaza(current => current.filter(player => player.id !== message.playerId)); break;
+        case "plazaScores": setRecords(message); break;
+      }
+    },
   });
   const origin = useSyncExternalStore(noSubscribe, () => window.location.origin, () => "");
   const music = useGameMusic(stage, offset);
@@ -64,11 +81,11 @@ export function ScreenRoom() {
       </header>
       <div className="min-h-0 flex-1">
         {tab === "ranking" && <RankingView stage={stage} />}
-        {tab === "progress" && stage.phase === "lobby" && <Lobby stage={stage} url={url} />}
+        {tab === "progress" && stage.phase === "lobby" && <Lobby stage={stage} url={url} players={plaza} />}
         {tab === "progress" && stage.phase === "select" && <Select stage={stage} url={url} />}
         {tab === "progress" && stage.phase === "rules" && <Rules def={stageGame(stage)!} />}
         {tab === "progress" && stage.phase === "countdown" && <Countdown stage={stage} offset={offset} />}
-        {tab === "progress" && stage.phase === "playing" && <Playing stage={stage} offset={offset} />}
+        {tab === "progress" && stage.phase === "playing" && <Playing stage={stage} offset={offset} players={plaza} scores={records?.startedAt === stage.startedAt ? new Map(records.scores) : undefined} />}
         {tab === "progress" && stage.phase === "result" && <RoundResult stage={stage} />}
         {tab === "progress" && stage.phase === "final" && <Final stage={stage} />}
       </div>
@@ -111,23 +128,24 @@ function useGameMusic(stage: StageView | null, offset: number) {
 
 const sortedByScore = (teams: TeamView[]) => [...teams].sort((a, b) => b.score - a.score);
 
-function Lobby({ stage, url }: { stage: StageView; url: string }) {
+function Lobby({ stage, url, players }: { stage: StageView; url: string; players: PlazaPlayer[] }) {
   return (
-    <div className="grid h-full grid-cols-[auto_minmax(0,1fr)] items-center gap-12 px-8">
-      <div className="marquee"><QrImage value={url} size={420} label="참가자 입장 QR" /></div>
-      <div className="flex min-w-0 flex-col gap-5">
-        <h2 className="text-6xl font-black leading-tight">폰 카메라로<br /><span className="text-gold">QR을 찍어 주세요</span></h2>
-        <p className="text-2xl text-mist">진행자가 알려 주는 입장 코드를 넣고, {stage.mode === "team" ? "조와 닉네임을" : "이름과 닉네임을"} 등록하세요.</p>
-        <div className="flex flex-wrap gap-2">
+    <div className="grid h-full min-h-0 grid-cols-[minmax(150px,1fr)_minmax(0,4fr)] gap-4">
+      <aside className="flex flex-col items-center justify-center gap-3 text-center">
+        <h2 className="text-xl font-black">QR로 입장</h2>
+        <div className="w-full max-w-48 [&_img]:h-auto [&_img]:w-full">
+          <QrImage value={url} size={190} label="참가자 입장 QR" />
+        </div>
+        <p className="text-sm text-mist">입장한 뒤 폰에서 캐릭터를 그려 보세요.</p>
+        <div className="flex flex-wrap justify-center gap-2">
           {stage.teams.map(team => (
-            <span key={team.id} className="flex items-center gap-2 rounded-full bg-panel px-4 py-2 text-lg">
-              <span className="size-3 rounded-full" style={{ background: team.color }} />
-              {team.name} <b className="tabular-nums">{team.members}명</b>
+            <span key={team.id} className="rounded-full bg-panel px-2 py-1 text-sm" style={{ color: team.color }}>
+              {team.name} {team.members}명
             </span>
           ))}
         </div>
-        <p className="truncate text-lg text-mist">{stage.recent.join(" · ")}</p>
-      </div>
+      </aside>
+      <CharacterPlaza players={players} teams={stage.teams} />
     </div>
   );
 }
@@ -247,77 +265,30 @@ function Countdown({ stage, offset }: { stage: StageView; offset: number }) {
   );
 }
 
-function Playing({ stage, offset }: { stage: StageView; offset: number }) {
+function Playing({ stage, offset, players, scores }: {
+  stage: StageView; offset: number; players: PlazaPlayer[]; scores?: ReadonlyMap<string, string>;
+}) {
   const now = useNow();
   const def = gameById(stage.gameId)!;
   const ranked = [...stage.teams].sort((a, b) => b.average - a.average);
-  const best = ranked[0]?.average ?? 0;
   return (
-    <div className="flex h-full flex-col gap-3">
+    <div className="flex h-full flex-col gap-3 [&>section]:flex-1">
       <div className="flex items-center gap-3">
         <GameIcon name={def.icon} className="size-8 text-gold" />
         <h2 className="flex-1 text-3xl font-black">{def.name}</h2>
         <span className="rounded-full bg-gold px-5 py-1 text-3xl font-black tabular-nums text-night">{secondsLeft(stage.phaseEndsAt, now, offset)}</span>
       </div>
-      <div className={`grid min-h-0 flex-1 gap-6 ${stage.mode === "team" ? "grid-cols-[minmax(0,2fr)_minmax(0,3fr)]" : "grid-cols-1"}`}>
-        {stage.mode === "team" && (
-          <section className="flex min-h-0 flex-col gap-2">
-            <h3 className="text-lg font-bold">조 평균</h3>
-            <ul className="flex min-h-0 flex-1 flex-col justify-center gap-2 overflow-hidden">
-              {ranked.map(team => (
-                <li key={team.id} className="grid grid-cols-[80px_minmax(0,1fr)] items-center gap-2">
-                  <span className="truncate font-bold">{team.name}</span>
-                  <div className="relative h-8 rounded-md bg-black/30">
-                    <div className="h-full rounded-md transition-[width] duration-300 ease-linear" style={{ width: `${Math.min(1, barLength(def, team.average, best)) * 100}%`, background: team.color }} />
-                    <span className="absolute inset-y-0 left-2 flex items-center text-sm font-bold tabular-nums text-snow [text-shadow:0_0_4px_#000]">{averageLabel(def, team.average)}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-        <RaceLanes stage={stage} def={def} />
-      </div>
-    </div>
-  );
-}
-
-const LANES = 10;
-const SOLO_COLOR = "#ffc94d";
-
-/** 실시간 개인 경주: 상위 10명이 점수만큼 달려 나갑니다. 순위가 바뀌면 레인 순서도 바뀝니다. */
-function RaceLanes({ stage, def }: { stage: StageView; def: GameDef }) {
-  const best = Math.max(0, ...stage.top.map(player => player.value));
-  const finish = Boolean(def.goal) || def.kind === "race";
-  return (
-    <section className="flex min-h-0 flex-col gap-2">
-      <h3 className="text-lg font-bold">실시간 개인 TOP {LANES} <span className="text-sm font-normal text-mist">내 등수는 폰에서 확인하세요</span></h3>
-      <ol className={`flex min-h-0 flex-1 flex-col justify-around overflow-hidden rounded-xl bg-panel/60 px-3 py-2 ${finish ? "border-r-8 border-dashed border-snow/60" : ""}`}>
-        {Array.from({ length: LANES }, (_, i) => {
-          const player = stage.top[i];
-          if (!player) return <li key={`empty-${i}`} className="h-9 border-b border-dashed border-line/40" />;
-          const color = stage.teams.find(team => team.id === player.teamId)?.color ?? SOLO_COLOR;
-          const length = Math.min(1, barLength(def, player.value, best));
-          return (
-            <li key={player.nickname} className="grid grid-cols-[28px_minmax(0,1fr)_72px] items-center gap-2 border-b border-dashed border-line/40">
-              <span className="text-right text-lg font-black tabular-nums text-mist">{i + 1}</span>
-              <div className="relative h-9">
-                <div className="absolute inset-y-3 left-0 rounded-full opacity-40 transition-[width] duration-300 ease-linear" style={{ width: `${length * 100}%`, background: color }} />
-                {/* left와 translate를 같은 비율로 두면 이름표가 0%에선 왼쪽 끝, 100%에선 오른쪽 끝에 맞춰 달립니다. */}
-                <span
-                  className="absolute top-0 flex h-9 max-w-[60%] items-center gap-1 whitespace-nowrap rounded-full px-3 text-sm font-bold text-night transition-all duration-300 ease-linear"
-                  style={{ left: `${length * 100}%`, transform: `translateX(-${length * 100}%)`, background: color }}
-                >
-                  <Footprints aria-hidden className="size-4 shrink-0" />
-                  <span className="truncate">{player.display}</span>
-                </span>
-              </div>
-              <span className="text-right text-sm tabular-nums">{player.label}</span>
+      {stage.mode === "team" && (
+        <ul aria-label="조 평균" className="flex max-h-24 flex-wrap gap-2 overflow-auto">
+          {ranked.map(team => (
+            <li key={team.id} className="rounded-lg bg-panel px-3 py-1 font-bold">
+              <span style={{ color: team.color }}>{team.name}</span> <span className="tabular-nums">{averageLabel(def, team.average)}</span>
             </li>
-          );
-        })}
-      </ol>
-    </section>
+          ))}
+        </ul>
+      )}
+      <CharacterPlaza players={players} teams={stage.teams} scores={scores} playing />
+    </div>
   );
 }
 

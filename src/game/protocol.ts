@@ -1,5 +1,6 @@
 // 관리자·행사장 화면·참가자 폰과 Durable Object가 주고받는 메시지 형식입니다.
 import { z } from "zod";
+import { AVATAR_CELLS, AVATAR_PALETTE } from "./avatar";
 import { RHYTHM_LANES, type GameDef, type Run, type TeamRank } from "./engine";
 
 export const MAX_PLAYERS = 500;
@@ -103,7 +104,11 @@ export type StageView = {
 
 export type PlayerSummary = { id: string; teamId: string; name: string; nickname: string; online: boolean; score: number; prize: boolean };
 
+/** 전광판 전용 정보. 참가자 실명과 접속 토큰은 포함하지 않습니다. */
+export type PlazaPlayer = { id: string; nickname: string; teamId: string; avatar: string | null };
+
 export type Personal = {
+  avatar: string | null;
   playerId: string; teamId: string; name: string; nickname: string; run: Run | null; rank: number | null; ranked: number;
   score: number; overallRank: number; playerCount: number;
 };
@@ -128,6 +133,7 @@ export const clientMessage = z.discriminatedUnion("t", [
   z.strictObject({ t: z.literal("enter"), entryCode: text(20) }),
   z.strictObject({ t: z.literal("join"), entryCode: text(20), teamId: z.string().max(32), name: text(20), nickname: text(12) }),
   z.strictObject({ t: z.literal("resume"), token: z.string().min(1).max(64) }),
+  z.strictObject({ t: z.literal("avatar"), avatar: z.string().length(AVATAR_CELLS).regex(new RegExp("^[0-" + AVATAR_PALETTE.length + "]+$")).nullable() }),
   // at은 입력이 실제로 일어난 서버 기준 시각입니다. 묶어 보내도 골인 순서가 밀리지 않습니다.
   z.strictObject({ t: z.literal("input"), inputs: z.array(z.strictObject({ at: z.number(), input: gameInput })).min(1).max(40) }),
   z.strictObject({
@@ -159,6 +165,10 @@ export type ServerMessage =
   | { t: "stage"; now: number; stage: StageView }
   | { t: "admin"; screenKey: string; entryCode: string; players: PlayerSummary[]; rounds: RoundRecord[] }
   | { t: "screenOk" }
+  | { t: "plaza"; players: PlazaPlayer[] }
+  | { t: "plazaPlayer"; player: PlazaPlayer }
+  | { t: "plazaRemove"; playerId: string }
+  | { t: "plazaScores"; startedAt: number; scores: [playerId: string, label: string][] }
   | { t: "entered"; mode: GameMode; teams: TeamInfo[] }
   | { t: "joined"; token: string; personal: Personal }
   | { t: "personal"; personal: Personal }

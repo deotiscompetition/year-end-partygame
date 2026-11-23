@@ -1,9 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
+import { BLANK_AVATAR } from "../src/game/avatar";
 import catalog from "../src/content/games.json";
 import { applyInput, liveValue, newRun, rankPlayers, rankTeams, REFLEX_MAX_DELAY_MS, REFLEX_NO_RESPONSE_MS, valueLabel, type GameDef, type PlayerRank, type Run, type TeamRank } from "../src/game/engine";
 import {
   clientMessage, COUNTDOWN_MS, displayName, MAX_ENTRY_ATTEMPTS, MAX_PLAYERS, rankByScore, TEAM_COLORS, withDuration,
-  type ClientMessage, type ErrorCode, type GameMode, type Leader, type ScreenTab, type Personal, type Phase, type PlayedGame, type RoundRecord, type ServerMessage, type StageView, type TeamInfo, type TopPlayer,
+  type ClientMessage, type ErrorCode, type GameMode, type Leader, type ScreenTab, type Personal, type Phase, type PlayedGame, type PlazaPlayer, type RoundRecord, type ServerMessage, type StageView, type TeamInfo, type TopPlayer,
 } from "../src/game/protocol";
 import type { Registry } from "./registry";
 
@@ -34,7 +35,7 @@ const TOP_COUNT = 10;
 const MAX_MVPS = 5;
 
 type TeamState = TeamInfo & { score: number };
-type PlayerState = { id: string; teamId: string; name: string; nickname: string; token: string; score: number; prize?: boolean };
+type PlayerState = { id: string; teamId: string; name: string; nickname: string; token: string; score: number; prize?: boolean; avatar?: string | null };
 
 type RoomState = {
   code: string;
@@ -150,7 +151,11 @@ export class Room extends DurableObject<Env> {
         if (message.key !== room.screenKey) return this.fail(socket, "BAD_TOKEN", "화면 주소가 올바르지 않습니다.");
         socket.serializeAttachment({ role: "screen" } satisfies Attachment);
         this.send(socket, { t: "screenOk" });
-        return this.send(socket, this.stageMessage());
+        this.send(socket, { t: "plaza", players: room.players.map(player => this.plazaPlayer(player)) });
+        this.send(socket, this.stageMessage());
+        const scores = this.plazaScores();
+        if (scores) this.send(socket, scores);
+        return;
       case "enter":
         if (!this.checkEntry(socket, message.entryCode)) return;
         return this.send(socket, { t: "entered", mode: room.mode, teams: room.teams.map(({ id, name, color }) => ({ id, name, color })) });
@@ -160,6 +165,19 @@ export class Room extends DurableObject<Env> {
         const player = room.players.find(entry => entry.token === message.token);
         if (!player) return this.fail(socket, "BAD_TOKEN", "다시 입장해 주세요.");
         return this.attachPlayer(socket, player);
+      }
+      case "avatar": {
+        if (attachment.role !== "player") return;
+        if (room.phase === "playing" || room.phase === "countdown") return this.fail(socket, "BUSY", "게임이 끝난 뒤에 캐릭터를 수정해 주세요.");
+        const player = room.players.find(entry => entry.id === attachment.playerId);
+        if (!player) return;
+        player.avatar = message.avatar === BLANK_AVATAR ? null : message.avatar;
+        room.expiresAt = Date.now() + this.idleMs();
+        await this.save();
+        if (this.room !== room || !room.players.includes(player)) return;
+        this.send(socket, { t: "personal", personal: this.personal(player, rankByScore(room.players)) });
+        this.broadcastScreen({ t: "plazaPlayer", player: this.plazaPlayer(player) });
+        return;
       }
       case "input":
         if (attachment.role === "player" && attachment.playerId) this.input(attachment.playerId, message);
@@ -265,6 +283,7 @@ export class Room extends DurableObject<Env> {
     this.ensureRun(player.id);
     this.attachPlayer(socket, player, true);
     await this.save();
+    if (this.room === room && room.players.includes(player)) this.broadcastScreen({ t: "plazaPlayer", player: this.plazaPlayer(player) });
     this.report();
   }
 
@@ -424,6 +443,7 @@ export class Room extends DurableObject<Env> {
       case "kick": {
         if (room.phase !== "lobby") return;
         room.players = room.players.filter(player => player.id !== message.playerId);
+        this.broadcastScreen({ t: "plazaRemove", playerId: message.playerId });
         for (const other of this.ctx.getWebSockets()) {
           if ((other.deserializeAttachment() as Attachment).playerId === message.playerId) {
             other.serializeAttachment({ role: null } satisfies Attachment);
@@ -555,6 +575,29 @@ export class Room extends DurableObject<Env> {
     return { t: "stage", now: Date.now(), stage };
   }
 
+  private plazaPlayer({ id, nickname, teamId, avatar }: PlayerState): PlazaPlayer {
+    return { id, nickname, teamId, avatar: avatar ?? null };
+  }
+
+  private plazaScores(): ServerMessage | null {
+    const room = this.room!;
+    if (room.phase !== "playing" || room.startedAt === null) return null;
+    const def = this.currentDef();
+    if (!def) return null;
+    const empty = newRun();
+    return {
+      t: "plazaScores", startedAt: room.startedAt,
+      scores: room.players.map(({ id }) => [id, valueLabel(def, room.runs[id] ?? empty)]),
+    };
+  }
+
+  private broadcastScreen(message: ServerMessage): void {
+    const encoded = JSON.stringify(message);
+    for (const socket of this.ctx.getWebSockets()) {
+      if ((socket.deserializeAttachment() as Attachment).role === "screen") this.send(socket, encoded);
+    }
+  }
+
   private adminMessage(): ServerMessage {
     const room = this.room!;
     const online = this.onlinePlayers();
@@ -569,6 +612,7 @@ export class Room extends DurableObject<Env> {
     const room = this.room!;
     const ranked = room.playerRanking.find(entry => entry.playerId === player.id);
     return {
+      avatar: player.avatar ?? null,
       playerId: player.id, teamId: player.teamId, name: player.name, nickname: player.nickname, run: room.runs[player.id] ?? null,
       rank: ranked?.rank ?? null, ranked: room.playerRanking.length,
       score: player.score, overallRank: ranks.get(player.id) ?? room.players.length, playerCount: room.players.length,
@@ -591,6 +635,8 @@ export class Room extends DurableObject<Env> {
   private broadcast(toPlayers: boolean, personal = false): void {
     if (!this.room) return;
     const stage = JSON.stringify(this.stageMessage());
+    const scoreMessage = this.plazaScores();
+    const plazaScores = scoreMessage ? JSON.stringify(scoreMessage) : null;
     // 참가자 명단·통계는 자주 바뀌지 않으니 큰 화면 갱신보다 드물게 보냅니다.
     const admin = toPlayers ? JSON.stringify(this.adminMessage()) : null;
     const players = personal ? new Map(this.room.players.map(player => [player.id, player])) : null;
@@ -601,6 +647,7 @@ export class Room extends DurableObject<Env> {
       const { role, playerId } = socket.deserializeAttachment() as Attachment;
       if (role === "admin" && admin) this.send(socket, admin);
       if (role === "admin" || role === "screen" || (role === "player" && toPlayers)) this.send(socket, stage);
+      if (role === "screen" && plazaScores) this.send(socket, plazaScores);
       const player = playerId ? players?.get(playerId) : undefined;
       if (player) this.send(socket, { t: "personal", personal: this.personal(player, ranks) });
       const liveRank = playerId ? liveRanks?.get(playerId) : undefined;
